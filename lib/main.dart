@@ -309,7 +309,7 @@ class _LoginPageState extends State<LoginPage> {
                     Icon(Icons.vpn_key_outlined, size: 72, color: DraculaThemeColors.primaryPink),
                     const SizedBox(height: 16),
                     const Text(
-                      "Dracula Secure Access",
+                      "Doctor Appointment Secure Access",
                       style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.w700,
