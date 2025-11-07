@@ -64,6 +64,7 @@ class MyApp extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
           color: Colors.white,
+          shadowColor: Colors.black.withOpacity(0.1),
         ),
 
         inputDecorationTheme: InputDecorationTheme(
@@ -124,6 +125,19 @@ class MyApp extends StatelessWidget {
               fontSize: 16,
               fontWeight: FontWeight.w600,
             ),
+          ).copyWith(
+            // ✨ Mejora: Feedback visual en hover/press
+            overlayColor: WidgetStateProperty.resolveWith<Color?>(
+              (Set<WidgetState> states) {
+                if (states.contains(WidgetState.pressed)) {
+                  return const Color(0xFF0891B2).withOpacity(0.12);
+                }
+                if (states.contains(WidgetState.hovered)) {
+                  return const Color(0xFF0891B2).withOpacity(0.08);
+                }
+                return null;
+              },
+            ),
           ),
         ),
 
@@ -144,6 +158,9 @@ class MyApp extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
+          // ✨ Mejora: Animación de selección
+          showCheckmark: true,
+          checkmarkColor: Colors.white,
         ),
 
         bottomNavigationBarTheme: const BottomNavigationBarThemeData(
@@ -178,11 +195,13 @@ class MyApp extends StatelessWidget {
             fontSize: 32,
             fontWeight: FontWeight.bold,
             color: Color(0xFF0F172A),
+            letterSpacing: -0.5,
           ),
           displayMedium: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.bold,
             color: Color(0xFF0F172A),
+            letterSpacing: -0.25,
           ),
           displaySmall: TextStyle(
             fontSize: 24,
@@ -208,17 +227,27 @@ class MyApp extends StatelessWidget {
             fontSize: 16,
             fontWeight: FontWeight.normal,
             color: Color(0xFF334155),
+            height: 1.5,
           ),
           bodyMedium: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.normal,
             color: Color(0xFF475569),
+            height: 1.5,
           ),
           labelLarge: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
             color: Color(0xFF0F172A),
           ),
+        ),
+
+        // ✨ Mejora: Configuración de animaciones
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          },
         ),
       ),
 
@@ -265,6 +294,7 @@ class MyApp extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
           color: const Color(0xFF1E293B),
+          shadowColor: Colors.black.withOpacity(0.3),
         ),
 
         inputDecorationTheme: InputDecorationTheme(
@@ -310,6 +340,18 @@ class MyApp extends StatelessWidget {
               fontWeight: FontWeight.w600,
               letterSpacing: 0.5,
             ),
+          ).copyWith(
+            overlayColor: WidgetStateProperty.resolveWith<Color?>(
+              (Set<WidgetState> states) {
+                if (states.contains(WidgetState.pressed)) {
+                  return Colors.black.withOpacity(0.1);
+                }
+                if (states.contains(WidgetState.hovered)) {
+                  return Colors.black.withOpacity(0.05);
+                }
+                return null;
+              },
+            ),
           ),
         ),
 
@@ -324,6 +366,18 @@ class MyApp extends StatelessWidget {
             textStyle: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
+            ),
+          ).copyWith(
+            overlayColor: WidgetStateProperty.resolveWith<Color?>(
+              (Set<WidgetState> states) {
+                if (states.contains(WidgetState.pressed)) {
+                  return const Color(0xFF06B6D4).withOpacity(0.12);
+                }
+                if (states.contains(WidgetState.hovered)) {
+                  return const Color(0xFF06B6D4).withOpacity(0.08);
+                }
+                return null;
+              },
             ),
           ),
         ),
@@ -346,6 +400,8 @@ class MyApp extends StatelessWidget {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
           ),
+          showCheckmark: true,
+          checkmarkColor: Color(0xFF0F172A),
         ),
 
         bottomNavigationBarTheme: const BottomNavigationBarThemeData(
@@ -380,11 +436,13 @@ class MyApp extends StatelessWidget {
             fontSize: 32,
             fontWeight: FontWeight.bold,
             color: Color(0xFFF1F5F9),
+            letterSpacing: -0.5,
           ),
           displayMedium: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.bold,
             color: Color(0xFFF1F5F9),
+            letterSpacing: -0.25,
           ),
           displaySmall: TextStyle(
             fontSize: 24,
@@ -410,17 +468,26 @@ class MyApp extends StatelessWidget {
             fontSize: 16,
             fontWeight: FontWeight.normal,
             color: Color(0xFFCBD5E1),
+            height: 1.5,
           ),
           bodyMedium: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.normal,
             color: Color(0xFF94A3B8),
+            height: 1.5,
           ),
           labelLarge: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
             color: Color(0xFFF1F5F9),
           ),
+        ),
+
+        pageTransitionsTheme: const PageTransitionsTheme(
+          builders: {
+            TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          },
         ),
       ),
 

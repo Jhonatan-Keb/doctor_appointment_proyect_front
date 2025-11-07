@@ -41,47 +41,47 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyBm8Xm9jg5axaQN2C2r0V1XgUCyzbf6Z1g',
-    appId: '1:521987591979:web:8466121ce1615d47e17f6e',
-    messagingSenderId: '521987591979',
-    projectId: 'doctor-appointment-proyect',
-    authDomain: 'doctor-appointment-proyect.firebaseapp.com',
-    storageBucket: 'doctor-appointment-proyect.firebasestorage.app',
+    apiKey: 'AIzaSyAfeYGM1sMNH5_pNDBFIfDNLMfZJ7k5Evw',
+    appId: '1:822845398511:web:d7eed19c92966e95d02a1a',
+    messagingSenderId: '822845398511',
+    projectId: 'doctor-appointment-proje-77d3f',
+    authDomain: 'doctor-appointment-proje-77d3f.firebaseapp.com',
+    storageBucket: 'doctor-appointment-proje-77d3f.firebasestorage.app',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyD-WOlj5Bcwpi3TUEY0_ztAfN6ub8nzlDU',
-    appId: '1:521987591979:android:bf5105f9c57bb3d4e17f6e',
-    messagingSenderId: '521987591979',
-    projectId: 'doctor-appointment-proyect',
-    storageBucket: 'doctor-appointment-proyect.firebasestorage.app',
+    apiKey: 'AIzaSyBDAzSB7QvaQOG_VoUbVFbN9qYgrWRIeAM',
+    appId: '1:822845398511:android:3783113b10d63a54d02a1a',
+    messagingSenderId: '822845398511',
+    projectId: 'doctor-appointment-proje-77d3f',
+    storageBucket: 'doctor-appointment-proje-77d3f.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyDyE1jv8bYMDXd9hPo-jloxfTeY7mXeXWo',
-    appId: '1:521987591979:ios:7c2223c899be6232e17f6e',
-    messagingSenderId: '521987591979',
-    projectId: 'doctor-appointment-proyect',
-    storageBucket: 'doctor-appointment-proyect.firebasestorage.app',
+    apiKey: 'AIzaSyDW1ioPDAbFD8IBbcTznC12BQSlesB3edw',
+    appId: '1:822845398511:ios:e5cc524b059c487ed02a1a',
+    messagingSenderId: '822845398511',
+    projectId: 'doctor-appointment-proje-77d3f',
+    storageBucket: 'doctor-appointment-proje-77d3f.firebasestorage.app',
     iosBundleId: 'com.example.doctorAppointmentProyect',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyDyE1jv8bYMDXd9hPo-jloxfTeY7mXeXWo',
-    appId: '1:521987591979:ios:7c2223c899be6232e17f6e',
-    messagingSenderId: '521987591979',
-    projectId: 'doctor-appointment-proyect',
-    storageBucket: 'doctor-appointment-proyect.firebasestorage.app',
+    apiKey: 'AIzaSyDW1ioPDAbFD8IBbcTznC12BQSlesB3edw',
+    appId: '1:822845398511:ios:e5cc524b059c487ed02a1a',
+    messagingSenderId: '822845398511',
+    projectId: 'doctor-appointment-proje-77d3f',
+    storageBucket: 'doctor-appointment-proje-77d3f.firebasestorage.app',
     iosBundleId: 'com.example.doctorAppointmentProyect',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyBm8Xm9jg5axaQN2C2r0V1XgUCyzbf6Z1g',
-    appId: '1:521987591979:web:a02c0b4882b16381e17f6e',
-    messagingSenderId: '521987591979',
-    projectId: 'doctor-appointment-proyect',
-    authDomain: 'doctor-appointment-proyect.firebaseapp.com',
-    storageBucket: 'doctor-appointment-proyect.firebasestorage.app',
+    apiKey: 'AIzaSyAfeYGM1sMNH5_pNDBFIfDNLMfZJ7k5Evw',
+    appId: '1:822845398511:web:e78cc7fd1a162859d02a1a',
+    messagingSenderId: '822845398511',
+    projectId: 'doctor-appointment-proje-77d3f',
+    authDomain: 'doctor-appointment-proje-77d3f.firebaseapp.com',
+    storageBucket: 'doctor-appointment-proje-77d3f.firebasestorage.app',
   );
 
 }
