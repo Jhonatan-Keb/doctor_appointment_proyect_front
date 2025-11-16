@@ -17,7 +17,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Aplicación Médica',
+      title: 'HouseMD Usuarios',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.system,
 

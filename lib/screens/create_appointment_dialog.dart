@@ -1,305 +1,350 @@
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-DateTime _day(DateTime d) => DateTime(d.year, d.month, d.day);
+class CreateAppointmentDialog extends StatefulWidget {
+  final String? motivoInicial;
+  final String? medicoIdInicial;
 
-String _dispDocId(String medicoId, DateTime inicio) {
-  final f = DateFormat('yyyyMMdd_HHmm').format(inicio);
-  return '${medicoId}_$f';
+  const CreateAppointmentDialog({
+    super.key,
+    this.motivoInicial,
+    this.medicoIdInicial,
+  });
+
+  static Future<void> show(
+    BuildContext context, {
+    String? motivoInicial,
+    String? medicoIdInicial,
+  }) {
+    return showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => CreateAppointmentDialog(
+        motivoInicial: motivoInicial,
+        medicoIdInicial: medicoIdInicial,
+      ),
+    );
+  }
+
+  @override
+  State<CreateAppointmentDialog> createState() =>
+      _CreateAppointmentDialogState();
 }
+
+class _CreateAppointmentDialogState extends State<CreateAppointmentDialog> {
+  final _formKey = GlobalKey<FormState>();
+
+  final TextEditingController _motivoCtrl = TextEditingController();
+  final TextEditingController _lugarCtrl = TextEditingController();
+  final TextEditingController _notasCtrl = TextEditingController();
+
+  String? _selectedDoctorId;
+  DateTime _selectedDateTime =
+      DateTime.now().add(const Duration(hours: 1));
+
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _motivoCtrl.text = widget.motivoInicial ?? '';
+    _selectedDoctorId = widget.medicoIdInicial;
+  }
+
+  @override
+  void dispose() {
+    _motivoCtrl.dispose();
+    _lugarCtrl.dispose();
+    _notasCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDateTime() async {
+    final now = DateTime.now();
+    final initialDate = _selectedDateTime.isAfter(now)
+        ? _selectedDateTime
+        : now.add(const Duration(hours: 1));
+
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: now,
+      lastDate: DateTime(now.year + 2),
+    );
+    if (date == null) return;
+
+    final timeOfDay = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initialDate),
+    );
+    if (timeOfDay == null) return;
+
+    setState(() {
+      _selectedDateTime = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        timeOfDay.hour,
+        timeOfDay.minute,
+      );
+    });
+  }
+
+  Future<void> _save() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    if (!_formKey.currentState!.validate()) return;
+
+    if (_selectedDoctorId == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Selecciona un doctor')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+
+    try {
+      await FirebaseFirestore.instance.collection('citas').add({
+        'userId': user.uid,
+        'medicoId': _selectedDoctorId,
+        'motivo': _motivoCtrl.text.trim(),
+        'lugar': _lugarCtrl.text.trim(),
+        'notas': _notasCtrl.text.trim(),
+        'cuando': Timestamp.fromDate(_selectedDateTime),
+        'estado': 'pendiente',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      Navigator.of(context).pop();
+
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Cita creada correctamente')),
+      );
+    } catch (e) {
+      setState(() => _saving = false);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text('Error al crear cita: $e')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fechaStr =
+        DateFormat('dd/MM/yyyy – HH:mm').format(_selectedDateTime);
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Crear cita',
+                  style: theme.textTheme.titleLarge,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Completa la información para agendar tu cita.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                TextFormField(
+                  controller: _motivoCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Motivo / Título (ej. Consulta general)',
+                    prefixIcon: Icon(Icons.description_outlined),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Ingresa el motivo de la cita';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+
+                TextFormField(
+                  controller: _lugarCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Lugar / Clínica',
+                    prefixIcon: Icon(Icons.location_on_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: _pickDateTime,
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Fecha y hora',
+                      prefixIcon: Icon(Icons.calendar_month_outlined),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(fechaStr),
+                        const Icon(Icons.edit_calendar_outlined),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // ===== Dropdown de doctores (solo nombres reales) =====
+                StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('usuarios')
+                      .where('rol', whereIn: ['Médico', 'medico'])
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return Text(
+                        'Error al cargar médicos: ${snapshot.error}',
+                        style: TextStyle(
+                          color: theme.colorScheme.error,
+                        ),
+                      );
+                    }
+
+                    if (!snapshot.hasData) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: LinearProgressIndicator(),
+                      );
+                    }
+
+                    final docs = snapshot.data!.docs;
+
+                    if (docs.isEmpty) {
+                      return InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Doctor',
+                          prefixIcon:
+                              Icon(Icons.local_hospital_outlined),
+                        ),
+                        child: Text(
+                          'Aún no hay cuentas de médicos.\n'
+                          'Cuando se registren médicos, podrás seleccionarlos aquí.',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      );
+                    }
+
+                    return DropdownButtonFormField<String>(
+                      value: _selectedDoctorId,
+                      decoration: const InputDecoration(
+                        labelText: 'Doctor',
+                        prefixIcon: Icon(Icons.local_hospital_outlined),
+                        contentPadding:
+                            EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                      ),
+                      items: docs.map((doc) {
+                        final data =
+                            doc.data() as Map<String, dynamic>;
+                        final nombre =
+                            (data['nombre'] ?? 'Médico') as String;
+
+                        return DropdownMenuItem<String>(
+                          value: doc.id,
+                          child: Text(nombre),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedDoctorId = value;
+                        });
+                      },
+                      validator: (value) {
+                        if (value == null) {
+                          return 'Selecciona un doctor';
+                        }
+                        return null;
+                      },
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 12),
+
+                TextFormField(
+                  controller: _notasCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Notas adicionales (opcional)',
+                    prefixIcon: Icon(Icons.note_alt_outlined),
+                  ),
+                  maxLines: 3,
+                ),
+
+                const SizedBox(height: 20),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            _saving ? null : () => Navigator.of(context).pop(),
+                        icon: const Icon(Icons.close),
+                        label: const Text('Cancelar'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _saving ? null : _save,
+                        icon: _saving
+                            ? const SizedBox(
+                                height: 18,
+                                width: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.save_rounded),
+                        label: const Text('Guardar cita'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ========= Wrapper para mantener tu API antigua =========
 
 Future<void> showCreateAppointmentDialog(
   BuildContext context, {
   String? motivoSugerido,
-  String? lugarSugerido,
   String? medicoIdSugerido,
-}) async {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  if (uid == null) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Inicia sesión para crear una cita.')),
-      );
-    }
-    return;
-  }
-
-  final tituloCtrl = TextEditingController(text: motivoSugerido ?? '');
-  final lugarCtrl = TextEditingController(text: lugarSugerido ?? '');
-  DateTime? fecha;
-  TimeOfDay? hora;
-  String? selMedicoId = medicoIdSugerido;
-
-  const medicos = <Map<String, String>>[
-    {'id': 'dr_lopez', 'nombre': 'Dr. López'},
-    {'id': 'dra_martinez', 'nombre': 'Dra. Martínez'},
-    {'id': 'dr_ramirez', 'nombre': 'Dr. Ramírez'},
-    {'id': 'dra_gomez', 'nombre': 'Dra. Gómez'},
-    {'id': 'dr_perez', 'nombre': 'Dr. Pérez'},
-    {'id': 'dra_ruiz', 'nombre': 'Dra. Ruiz'},
-    {'id': 'dr_castro', 'nombre': 'Dr. Castro'},
-  ];
-
-  await showDialog<bool>(
-    context: context,
-    barrierDismissible: true,
-    builder: (dialogCtx) {
-      return Dialog(
-        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: LayoutBuilder(
-          builder: (_, constraints) {
-            final maxW = constraints.maxWidth.clamp(0, 560.0);
-            return ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: maxW is double ? maxW : 560,
-                maxHeight: 640,
-              ),
-              child: SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                  child: StatefulBuilder(
-                    builder: (innerCtx, setSheet) {
-                      final fechaTxt = (fecha == null)
-                          ? 'Elegir fecha'
-                          : DateFormat('dd/MM/yyyy').format(fecha!);
-                      final horaTxt = (hora == null)
-                          ? 'Elegir hora'
-                          : '${hora!.hour.toString().padLeft(2, '0')}:${hora!.minute.toString().padLeft(2, '0')}';
-
-                      return Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            height: 4,
-                            width: 48,
-                            margin: const EdgeInsets.only(bottom: 12, top: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.black12,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                          const Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text('Crear cita',
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          ),
-                          const SizedBox(height: 12),
-
-                          Expanded(
-                            child: SingleChildScrollView(
-                              child: Column(
-                                children: [
-                                  TextField(
-                                    controller: tituloCtrl,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Motivo / Título (ej. Consulta general)',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  TextField(
-                                    controller: lugarCtrl,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Lugar / Clínica',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  DropdownButtonFormField<String>(
-                                    value: selMedicoId,
-                                    items: medicos
-                                        .map((m) => DropdownMenuItem(
-                                              value: m['id'],
-                                              child: Text('${m['nombre']}  (${m['id']})'),
-                                            ))
-                                        .toList(),
-                                    onChanged: (v) => setSheet(() => selMedicoId = v),
-                                    decoration: const InputDecoration(
-                                      labelText: 'Médico',
-                                      border: OutlineInputBorder(),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: OutlinedButton.icon(
-                                          onPressed: () async {
-                                            final now = DateTime.now();
-                                            final picked = await showDatePicker(
-                                              context: innerCtx,
-                                              initialDate: fecha ?? now,
-                                              firstDate: now,
-                                              lastDate: now.add(const Duration(days: 365 * 2)),
-                                            );
-                                            if (picked != null) {
-                                              setSheet(() => fecha = _day(picked));
-                                            }
-                                          },
-                                          icon: const Icon(Icons.calendar_today),
-                                          label: Text(fechaTxt),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: OutlinedButton.icon(
-                                          onPressed: () async {
-                                            final picked = await showTimePicker(
-                                              context: innerCtx,
-                                              initialTime: TimeOfDay.now(),
-                                            );
-                                            if (picked != null) {
-                                              setSheet(() => hora = picked);
-                                            }
-                                          },
-                                          icon: const Icon(Icons.access_time),
-                                          label: Text(horaTxt),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  icon: const Icon(Icons.close),
-                                  label: const Text('Cancelar'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.grey.shade200,
-                                    foregroundColor: Colors.black87,
-                                  ),
-                                  onPressed: () => Navigator.of(dialogCtx).pop(false),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  icon: const Icon(Icons.save_outlined),
-                                  label: const Text('Guardar cita'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF7E57C2),
-                                    foregroundColor: Colors.white,
-                                  ),
-                                  onPressed: () async {
-                                    final motivo = tituloCtrl.text.trim();
-                                    final lugar = lugarCtrl.text.trim();
-
-                                    if (motivo.isEmpty ||
-                                        lugar.isEmpty ||
-                                        selMedicoId == null ||
-                                        fecha == null ||
-                                        hora == null) {
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Completa motivo, lugar, médico, fecha y hora.'),
-                                          ),
-                                        );
-                                      }
-                                      return;
-                                    }
-
-                                    final DateTime inicio = DateTime(
-                                      fecha!.year, fecha!.month, fecha!.day, hora!.hour, hora!.minute,
-                                    );
-                                    final DateTime fin = inicio.add(const Duration(minutes: 30));
-                                    final DateTime soloDia = DateTime(inicio.year, inicio.month, inicio.day);
-
-                                    final String dispId = _dispDocId(selMedicoId!, inicio);
-                                    
-                                    final dispRef = FirebaseFirestore.instance
-                                        .collection('disponibilidad_medicos')
-                                        .doc(dispId);
-
-                                    try {
-                                      final existing = await dispRef.get();
-                                      if (existing.exists) {
-                                        final data = existing.data() as Map<String, dynamic>;
-                                        final ocupado = (data['esta_disponible'] ?? false) == false;
-                                        if (ocupado) {
-                                          if (context.mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              const SnackBar(
-                                                content: Text('Ese horario ya está ocupado. Elige otra hora.'),
-                                              ),
-                                            );
-                                          }
-                                          return;
-                                        }
-                                      }
-
-                                      await dispRef.set({
-                                        'medicoId': selMedicoId,
-                                        'fecha': Timestamp.fromDate(soloDia),
-                                        'horaInicio': Timestamp.fromDate(inicio),
-                                        'esta_disponible': false,
-                                      }, SetOptions(merge: true));
-
-                                      await FirebaseFirestore.instance
-                                          .collection('usuarios')
-                                          .doc(uid)
-                                          .collection('citas')
-                                          .add({
-                                        'pacienteId': uid,
-                                        'medicoId': selMedicoId,
-                                        'motivo': motivo,
-                                        'titulo': motivo,
-                                        'lugar': lugar,
-                                        'cuando': Timestamp.fromDate(inicio),
-                                        'cuandoFin': Timestamp.fromDate(fin),
-                                        'creadoEn': FieldValue.serverTimestamp(),
-                                      });
-
-                                      await FirebaseFirestore.instance.collection('citas').add({
-                                        'pacienteId': uid,
-                                        'medicoId': selMedicoId,
-                                        'motivo': motivo,
-                                        'lugar': lugar,
-                                        'cuando': Timestamp.fromDate(inicio),
-                                        'cuandoFin': Timestamp.fromDate(fin),
-                                        'creadoEn': FieldValue.serverTimestamp(),
-                                      });
-
-                                      if (context.mounted) {
-                                        Navigator.of(dialogCtx).pop(true);
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Cita creada ✅ (bloque reservado)')),
-                                        );
-                                      }
-                                    } catch (e) {
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('Error: $e')),
-                                        );
-                                      }
-                                    }
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
-      );
-    },
+}) {
+  return CreateAppointmentDialog.show(
+    context,
+    motivoInicial: motivoSugerido,
+    medicoIdInicial: medicoIdSugerido,
   );
-
-  tituloCtrl.dispose();
-  lugarCtrl.dispose();
 }

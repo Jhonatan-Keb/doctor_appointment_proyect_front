@@ -1,15 +1,31 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // ✨ Importar para HapticFeedback
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+
+import '../routes.dart';
 import 'login_page.dart';
-import 'package:doctor_appointment_project/routes.dart';
 import 'messages.dart';
 import 'settings.dart';
-import 'package:doctor_appointment_project/screens/appointmens.dart';
+import 'appointmens.dart';
 import 'create_appointment_dialog.dart';
+
+// Wrapper para mantener compatibilidad con el código existente
+Future<void> showCreateAppointmentDialog(
+  BuildContext context, {
+  String? motivoSugerido,
+  String? medicoIdSugerido,
+}) {
+  // medicoIdSugerido se usará solo si coincide con un UID real de un médico;
+  // si no, simplemente se ignora y el usuario elige en el dropdown.
+  return CreateAppointmentDialog.show(
+    context,
+    motivoInicial: motivoSugerido,
+    medicoIdInicial: medicoIdSugerido,
+  );
+}
 
 class _MyScrollBehavior extends MaterialScrollBehavior {
   @override
@@ -29,7 +45,7 @@ class AppointmentHomePage extends StatefulWidget {
   State<AppointmentHomePage> createState() => _AppointmentHomePageState();
 }
 
-class _AppointmentHomePageState extends State<AppointmentHomePage> 
+class _AppointmentHomePageState extends State<AppointmentHomePage>
     with SingleTickerProviderStateMixin {
   int _navIndex = 0;
   late AnimationController _fabController;
@@ -37,11 +53,12 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
   @override
   void initState() {
     super.initState();
-    // ✨ Controlador para animación del FAB
     _fabController = AnimationController(
-      duration: const Duration(milliseconds: 300),
       vsync: this,
-    );
+      duration: const Duration(milliseconds: 350),
+      lowerBound: 0.9,
+      upperBound: 1.0,
+    )..forward();
   }
 
   @override
@@ -49,6 +66,9 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
     _fabController.dispose();
     super.dispose();
   }
+
+  void _lightHaptic() => HapticFeedback.selectionClick();
+  void _mediumHaptic() => HapticFeedback.mediumImpact();
 
   Widget _buildEspecialistaCard(
     BuildContext context,
@@ -59,46 +79,59 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
     VoidCallback onTap,
   ) {
     final theme = Theme.of(context);
-    
-    // ✨ Mejora: Añadir GestureDetector con feedback táctil
-    return SizedBox(
-      width: 160,
-      child: Card(
-        margin: const EdgeInsets.only(right: 12),
-        // ✨ Añadir elevación en hover
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.95, end: 1.0),
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeOutBack,
+        builder: (context, scale, child) {
+          return Transform.scale(
+            scale: scale,
+            child: child,
+          );
+        },
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
           onTap: () {
-            // Feedback háptico al tocar
-            HapticFeedback.lightImpact();
+            _lightHaptic();
             onTap();
           },
-          // ✨ Añadir animación de escala al presionar
-          splashColor: color.withOpacity(0.1),
-          highlightColor: color.withOpacity(0.05),
-          child: Padding(
-              padding: const EdgeInsets.all(16),
+          child: Ink(
+            width: 140,
+            decoration: BoxDecoration(
+              color: theme.cardColor,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: theme.colorScheme.outline.withOpacity(0.1),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // ✨ Hero animation para transición suave
-                  Hero(
-                    tag: 'especialista_$nombre',
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: color.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(icono, size: 32, color: color),
-                    ),
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: color.withOpacity(0.16),
+                    child: Icon(icono, color: color),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   Text(
                     nombre,
-                    style: theme.textTheme.titleSmall,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                     textAlign: TextAlign.center,
-                    maxLines: 2,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
@@ -116,6 +149,7 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
             ),
           ),
         ),
+      ),
     );
   }
 
@@ -129,7 +163,6 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
     }
   }
 
-  // ✨ Gesto 3: Menú de acciones rápidas con long press
   void _showQuickActionsSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -146,34 +179,23 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
+                color: Colors.grey.shade400,
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             Text(
-              'Acciones Rápidas',
-              style: Theme.of(context).textTheme.titleLarge,
+              'Acciones rápidas',
+              style: Theme.of(context).textTheme.titleMedium,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             ListTile(
               leading: CircleAvatar(
-                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                child: Icon(Icons.person, color: Theme.of(context).colorScheme.primary),
+                backgroundColor: Colors.blue.shade100,
+                child: Icon(Icons.add_circle_outline,
+                    color: Colors.blue.shade700),
               ),
-              title: const Text('Ver Perfil'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(context, AppRoutes.profile);
-              },
-            ),
-            ListTile(
-              leading: CircleAvatar(
-                backgroundColor: Colors.green.shade100,
-                child: Icon(Icons.add_circle, color: Colors.green.shade700),
-              ),
-              title: const Text('Nueva Cita'),
+              title: const Text('Crear nueva cita'),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: () {
                 Navigator.pop(context);
@@ -182,26 +204,15 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
             ),
             ListTile(
               leading: CircleAvatar(
-                backgroundColor: Colors.orange.shade100,
-                child: Icon(Icons.calendar_month, color: Colors.orange.shade700),
+                backgroundColor: Colors.green.shade100,
+                child:
+                    Icon(Icons.calendar_month, color: Colors.green.shade700),
               ),
-              title: const Text('Ver Calendario'),
+              title: const Text('Ver calendario'),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: () {
                 Navigator.pop(context);
                 setState(() => _navIndex = 2);
-              },
-            ),
-            ListTile(
-              leading: CircleAvatar(
-                backgroundColor: Colors.purple.shade100,
-                child: Icon(Icons.lightbulb, color: Colors.purple.shade700),
-              ),
-              title: const Text('Consejos de Salud'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.pushNamed(context, AppRoutes.consejos);
               },
             ),
           ],
@@ -216,145 +227,282 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
     final email = user?.email ?? 'Usuario';
     final theme = Theme.of(context);
 
-    // ✨ RefreshIndicator para actualizar datos
+    // Si no hay usuario logueado, mostramos algo básico
+    if (user == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Aplicación Médica')),
+        body: const Center(
+          child: Text('Inicia sesión para ver tu información.'),
+        ),
+      );
+    }
+
+    // ================= HOME =================
     final homeBody = RefreshIndicator(
-      onRefresh: () async {
-        // Simular recarga de datos
-        await Future.delayed(const Duration(seconds: 1));
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Datos actualizados ✅'),
-              duration: Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        }
-      },
+      onRefresh: () async =>
+          await Future.delayed(const Duration(milliseconds: 800)),
       color: theme.colorScheme.primary,
       child: ListView(
-        padding: const EdgeInsets.all(16),
         physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
         children: [
-          // BIENVENIDA con gesto de long press
-          GestureDetector(
-            onLongPress: () {
-              // ✨ Gesto 3: Long press para opciones rápidas
-              HapticFeedback.mediumImpact();
-              _showQuickActionsSheet(context);
-            },
-            child: Card(
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () => Navigator.pushNamed(context, AppRoutes.profile),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      // ✨ Animación de pulso
-                      TweenAnimationBuilder<double>(
-                        tween: Tween(begin: 0.9, end: 1.0),
-                        duration: const Duration(milliseconds: 800),
-                        curve: Curves.easeInOut,
-                        builder: (context, scale, child) {
-                          return Transform.scale(
-                            scale: scale,
-                            child: child,
-                          );
-                        },
-                        child: CircleAvatar(
-                          radius: 28,
-                          backgroundColor: theme.colorScheme.primaryContainer,
-                          child: Icon(
-                            Icons.person_rounded,
-                            size: 28,
-                            color: theme.colorScheme.primary,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: StreamBuilder<DocumentSnapshot>(
-                          stream: (user == null)
-                              ? const Stream.empty()
-                              : FirebaseFirestore.instance
-                                  .collection('usuarios')
-                                  .doc(user.uid)
-                                  .snapshots(),
-                          builder: (context, snapshot) {
-                            final data = snapshot.data?.data() as Map<String, dynamic>?;
-                            final nombre = (data?['nombre'] ?? '').toString().trim();
-
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Bienvenido ${nombre.isNotEmpty ? nombre : ''}',
-                                  style: theme.textTheme.titleLarge,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '¿En qué podemos ayudarte hoy?',
-                                  style: theme.textTheme.bodyMedium,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  email,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            );
-                          },
-                        ),
-                      ),
-                      Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        size: 18,
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ],
+          // Header con nombre y rol
+          Row(
+            children: [
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.9, end: 1.0),
+                duration: const Duration(milliseconds: 600),
+                curve: Curves.elasticOut,
+                builder: (context, scale, child) {
+                  return Transform.scale(
+                    scale: scale,
+                    child: child,
+                  );
+                },
+                child: CircleAvatar(
+                  radius: 26,
+                  backgroundColor: theme.colorScheme.primaryContainer,
+                  child: Icon(
+                    Icons.person_rounded,
+                    size: 28,
+                    color: theme.colorScheme.primary,
                   ),
                 ),
               ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // BOTONES ACCIÓN con animación
-          Row(
-            children: [
+              const SizedBox(width: 16),
               Expanded(
-                child: _AnimatedButton(
-                  onPressed: () => showCreateAppointmentDialog(context),
-                  icon: const Icon(Icons.add_circle_outline_rounded),
-                  label: const Text('Crear cita'),
-                  isPrimary: true,
+                child: StreamBuilder<DocumentSnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('usuarios')
+                      .doc(user.uid)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    final data =
+                        snapshot.data?.data() as Map<String, dynamic>?;
+
+                    final nombre =
+                        (data?['nombre'] ?? email.split('@').first) as String;
+                    final rol = (data?['rol'] ?? 'Paciente') as String;
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Hola, $nombre 👋',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          rol,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '¿Listo para revisar tu salud hoy?',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _AnimatedButton(
-                  onPressed: () => setState(() => _navIndex = 2),
-                  icon: const Icon(Icons.calendar_month_rounded),
-                  label: const Text('Mis citas'),
-                  isPrimary: true,
-                ),
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 18,
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ],
           ),
 
+          const SizedBox(height: 24),
+
+          // 🔥 Tarjetas solo para MÉDICOS
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('usuarios')
+                .doc(user.uid)
+                .snapshots(),
+            builder: (context, snapshot) {
+              final data =
+                  snapshot.data?.data() as Map<String, dynamic>? ?? {};
+              final rol = (data['rol'] ?? 'Paciente').toString().toLowerCase();
+
+              final isMedico = rol == 'médico' || rol == 'medico';
+
+              if (!isMedico) {
+                // Paciente NO ve estas tarjetas
+                return const SizedBox.shrink();
+              }
+
+              return SizedBox(
+                height: 110,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _SummaryCard(
+                        title: 'Próxima cita',
+                        icon: Icons.access_time_rounded,
+                        gradientColors: [
+                          theme.colorScheme.primary.withOpacity(0.9),
+                          theme.colorScheme.primary.withOpacity(0.6),
+                        ],
+                        stream: FirebaseFirestore.instance
+                            .collection('citas')
+                            .where('medicoId', isEqualTo: user.uid)
+                            .orderBy('cuando')
+                            .limit(1)
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData ||
+                              snapshot.data!.docs.isEmpty) {
+                            return const Text(
+                              'Sin próximas citas',
+                              style: TextStyle(color: Colors.white),
+                            );
+                          }
+                          final data = snapshot.data!.docs.first.data()
+                              as Map<String, dynamic>;
+                          final motivo = data['motivo'] ?? 'Consulta general';
+                          final ts = data['cuando'] as Timestamp?;
+                          final fecha = ts?.toDate();
+                          final fechaStr = fecha != null
+                              ? DateFormat('dd/MM, hh:mm a').format(fecha)
+                              : 'Fecha sin definir';
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                motivo,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                fechaStr,
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _SummaryCard(
+                        title: 'Citas del mes',
+                        icon: Icons.calendar_today_rounded,
+                        gradientColors: [
+                          Colors.indigo.shade500,
+                          Colors.indigo.shade300,
+                        ],
+                        stream: FirebaseFirestore.instance
+                            .collection('citas')
+                            .where('medicoId', isEqualTo: user.uid)
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const SizedBox.shrink();
+                          }
+                          final now = DateTime.now();
+                          final count = snapshot.data!.docs.where((doc) {
+                            final data =
+                                doc.data() as Map<String, dynamic>;
+                            final ts = data['cuando'] as Timestamp?;
+                            final fecha = ts?.toDate();
+                            return fecha != null &&
+                                fecha.month == now.month &&
+                                fecha.year == now.year;
+                          }).length;
+                          return Text(
+                            '$count citas este mes',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+
+          const SizedBox(height: 24),
+
+          // Botones de acción según rol
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('usuarios')
+                .doc(user.uid)
+                .snapshots(),
+            builder: (context, snapshot) {
+              final data =
+                  snapshot.data?.data() as Map<String, dynamic>? ?? {};
+              final rol = (data['rol'] ?? 'Paciente').toString().toLowerCase();
+              final isMedico = rol == 'médico' || rol == 'medico';
+
+              return Row(
+                children: [
+                  Expanded(
+                    child: _AnimatedButton(
+                      onPressed: isMedico
+                          ? () {
+                              Navigator.pushNamed(
+                                  context, AppRoutes.dashboard);
+                            }
+                          : () {
+                              showCreateAppointmentDialog(context);
+                            },
+                      icon: Icon(
+                        isMedico
+                            ? Icons.bar_chart_rounded
+                            : Icons.add_circle_outline_rounded,
+                      ),
+                      label:
+                          Text(isMedico ? 'Ver citas' : 'Crear cita'),
+                      isPrimary: true,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _AnimatedButton(
+                      onPressed: () {
+                        setState(() => _navIndex = 2);
+                      },
+                      icon: const Icon(Icons.calendar_month_rounded),
+                      label: const Text('Mis citas'),
+                      isPrimary: true,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+
           const SizedBox(height: 10),
 
-          // BOTÓN CONSEJOS
           Center(
             child: SizedBox(
               width: 220,
               child: _AnimatedButton(
-                onPressed: () => Navigator.pushNamed(context, AppRoutes.consejos),
+                onPressed: () =>
+                    Navigator.pushNamed(context, AppRoutes.consejos),
                 icon: const Icon(Icons.lightbulb_outline_rounded, size: 20),
                 label: const Text('Consejos de salud'),
                 isPrimary: false,
@@ -369,7 +517,6 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
           ),
           const SizedBox(height: 12),
 
-          // CARRUSEL ESPECIALISTAS
           ScrollConfiguration(
             behavior: _MyScrollBehavior(),
             child: SizedBox(
@@ -378,30 +525,6 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
                 scrollDirection: Axis.horizontal,
                 physics: const BouncingScrollPhysics(),
                 children: [
-                  _buildEspecialistaCard(
-                    context,
-                    'Dr. López',
-                    'Cardiólogo',
-                    Icons.favorite_rounded,
-                    Colors.red.shade400,
-                    () => showCreateAppointmentDialog(
-                      context,
-                      motivoSugerido: 'Chequeo cardiológico',
-                      medicoIdSugerido: 'dr_lopez',
-                    ),
-                  ),
-                  _buildEspecialistaCard(
-                    context,
-                    'Dra. Martínez',
-                    'Pediatra',
-                    Icons.child_care_rounded,
-                    Colors.pink.shade400,
-                    () => showCreateAppointmentDialog(
-                      context,
-                      motivoSugerido: 'Revisión pediátrica',
-                      medicoIdSugerido: 'dra_martinez',
-                    ),
-                  ),
                   _buildEspecialistaCard(
                     context,
                     'Dr. Ramírez',
@@ -434,121 +557,204 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
                     Colors.green.shade400,
                     () => showCreateAppointmentDialog(
                       context,
-                      motivoSugerido: 'Plan de nutrición',
+                      motivoSugerido: 'Plan alimenticio',
                       medicoIdSugerido: 'dr_perez',
-                    ),
-                  ),
-                  _buildEspecialistaCard(
-                    context,
-                    'Dra. Ruiz',
-                    'Oftalmóloga',
-                    Icons.visibility_rounded,
-                    Colors.orange.shade400,
-                    () => showCreateAppointmentDialog(
-                      context,
-                      motivoSugerido: 'Revisión de la vista',
-                      medicoIdSugerido: 'dra_ruiz',
-                    ),
-                  ),
-                  _buildEspecialistaCard(
-                    context,
-                    'Dr. Castro',
-                    'Neurólogo',
-                    Icons.psychology_rounded,
-                    Colors.teal.shade400,
-                    () => showCreateAppointmentDialog(
-                      context,
-                      motivoSugerido: 'Migrañas / dolores de cabeza',
-                      medicoIdSugerido: 'dr_castro',
                     ),
                   ),
                 ],
               ),
             ),
           ),
-
-          const SizedBox(height: 24),
-          Text(
-            'Próximas citas',
-            style: theme.textTheme.titleMedium,
-          ),
-          const SizedBox(height: 12),
-
-          if (user == null)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Text(
-                  'Inicia sesión para ver tus citas.',
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ),
-            )
-          else
-            _AppointmentsList(user: user, navIndex: _navIndex, onNavigate: (index) {
-              setState(() => _navIndex = index);
-            }),
-
-          const SizedBox(height: 24),
-          OutlinedButton.icon(
-            onPressed: () => _logoutToLogin(context),
-            icon: const Icon(Icons.logout_rounded),
-            label: const Text('Cerrar sesión'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: theme.colorScheme.error,
-              side: BorderSide(color: theme.colorScheme.error),
-            ),
-          ),
-          const SizedBox(height: 16),
         ],
       ),
     );
 
+    // ================= OTRAS PESTAÑAS =================
+    final citasBody = const MyAppointmentsPage();
     final messagesBody = const MessagesPage();
-    final scheduleBody = const MyAppointmentsPage();
-    final settingsBody = const SettingsPage();
 
-    Widget currentBody;
-    switch (_navIndex) {
-      case 1:
-        currentBody = messagesBody;
-        break;
-      case 2:
-        currentBody = scheduleBody;
-        break;
-      case 3:
-        currentBody = settingsBody;
-        break;
-      default:
-        currentBody = homeBody;
-    }
+    final screens = [homeBody, messagesBody, citasBody];
 
     return Scaffold(
-      appBar: (_navIndex == 2 || _navIndex == 3)
-          ? null
-          : AppBar(
-              title: const Text('Citas Médicas'),
-            ),
-      body: currentBody,
+      appBar: AppBar(
+        title: const Text('Aplicación Médica'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsPage()),
+              );
+            },
+          ),
+        ],
+      ),
+      drawer: _buildDrawer(context, email),
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        child: screens[_navIndex],
+      ),
+      floatingActionButton: ScaleTransition(
+        scale: CurvedAnimation(
+          parent: _fabController,
+          curve: Curves.easeOutBack,
+        ),
+        child: FloatingActionButton.extended(
+          onPressed: () {
+            _mediumHaptic();
+            if (_navIndex == 2) {
+              showCreateAppointmentDialog(context);
+            } else {
+              _showQuickActionsSheet(context);
+            }
+          },
+          icon: Icon(
+            _navIndex == 2
+                ? Icons.add_rounded
+                : Icons.flash_on_rounded,
+          ),
+          label: Text(_navIndex == 2 ? 'Nueva cita' : 'Acciones'),
+        ),
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _navIndex,
-        onTap: (i) => setState(() => _navIndex = i),
+        onTap: (index) {
+          setState(() => _navIndex = index);
+          _fabController
+            ..reset()
+            ..forward();
+        },
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home_rounded),
             label: 'Inicio',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.chat_bubble_outline_rounded),
+            icon: Icon(Icons.forum_rounded),
             label: 'Mensajes',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.calendar_month_rounded),
-            label: 'Calendario',
+            label: 'Citas',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings_rounded),
-            label: 'Ajustes',
+        ],
+      ),
+    );
+  }
+
+  Drawer _buildDrawer(BuildContext context, String email) {
+    final theme = Theme.of(context);
+    final user = FirebaseAuth.instance.currentUser;
+
+    return Drawer(
+      child: Column(
+        children: [
+          DrawerHeader(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  theme.colorScheme.primary,
+                  theme.colorScheme.primaryContainer,
+                ],
+              ),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: Colors.white,
+                  child: Icon(
+                    Icons.health_and_safety_rounded,
+                    color: theme.colorScheme.primary,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: StreamBuilder<DocumentSnapshot>(
+                    stream: (user == null)
+                        ? const Stream.empty()
+                        : FirebaseFirestore.instance
+                            .collection('usuarios')
+                            .doc(user.uid)
+                            .snapshots(),
+                    builder: (context, snapshot) {
+                      final data =
+                          snapshot.data?.data() as Map<String, dynamic>?;
+                      final nombre =
+                          (data?['nombre'] ?? email.split('@').first) as String;
+                      final rol = (data?['rol'] ?? 'Paciente') as String;
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            nombre,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            email,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              rol,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.person_outline_rounded),
+            title: const Text('Perfil'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.pushNamed(context, AppRoutes.profile);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.settings_outlined),
+            title: const Text('Configuración'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsPage()),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.logout_rounded),
+            title: const Text('Cerrar sesión'),
+            onTap: () => _logoutToLogin(context),
           ),
         ],
       ),
@@ -556,7 +762,81 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
   }
 }
 
-// ✨ Widget personalizado para botones animados
+// ========= Widgets de apoyo =========
+
+class _SummaryCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final List<Color> gradientColors;
+  final Stream<QuerySnapshot> stream;
+  final Widget Function(BuildContext, AsyncSnapshot<QuerySnapshot>) builder;
+
+  const _SummaryCard({
+    required this.title,
+    required this.icon,
+    required this.gradientColors,
+    required this.stream,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: stream,
+      builder: (context, snapshot) {
+        return Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: gradientColors,
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: Colors.white.withOpacity(0.2),
+                child: Icon(
+                  icon,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    builder(context, snapshot),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _AnimatedButton extends StatefulWidget {
   final VoidCallback onPressed;
   final Widget icon;
@@ -567,27 +847,30 @@ class _AnimatedButton extends StatefulWidget {
     required this.onPressed,
     required this.icon,
     required this.label,
-    this.isPrimary = true,
+    required this.isPrimary,
   });
 
   @override
   State<_AnimatedButton> createState() => _AnimatedButtonState();
 }
 
-class _AnimatedButtonState extends State<_AnimatedButton> 
+class _AnimatedButtonState extends State<_AnimatedButton>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
+  late Animation<double> _scale;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 100),
       vsync: this,
+      duration: const Duration(milliseconds: 120),
+      lowerBound: 0.97,
+      upperBound: 1.0,
     );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    _scale = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOut,
     );
   }
 
@@ -597,248 +880,67 @@ class _AnimatedButtonState extends State<_AnimatedButton>
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => _controller.forward(),
-      onTapUp: (_) {
-        _controller.reverse();
-        widget.onPressed();
-      },
-      onTapCancel: () => _controller.reverse(),
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: widget.isPrimary
-            ? ElevatedButton.icon(
-                onPressed: null, // Manejado por GestureDetector
-                icon: widget.icon,
-                label: widget.label,
-              )
-            : OutlinedButton.icon(
-                onPressed: null, // Manejado por GestureDetector
-                icon: widget.icon,
-                label: widget.label,
-              ),
-      ),
-    );
+  void _onTapDown(TapDownDetails details) {
+    _controller.reverse();
+    HapticFeedback.selectionClick();
   }
-}
 
-// ✨ Lista de citas con Dismissible
-class _AppointmentsList extends StatelessWidget {
-  final User user;
-  final int navIndex;
-  final Function(int) onNavigate;
-
-  const _AppointmentsList({
-    required this.user,
-    required this.navIndex,
-    required this.onNavigate,
-  });
+  void _onTapUp(TapUpDetails details) {
+    _controller.forward();
+    widget.onPressed();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('usuarios')
-          .doc(user.uid)
-          .collection('citas')
-          .orderBy('cuando')
-          .limit(5)
-          .snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'Error: ${snapshot.error}',
-                style: TextStyle(color: theme.colorScheme.error),
-              ),
-            ),
-          );
-        }
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        
-        final docs = snapshot.data!.docs;
-        if (docs.isEmpty) {
-          return Card(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.event_busy_rounded,
-                    size: 48,
-                    color: theme.colorScheme.onSurfaceVariant.withOpacity(0.5),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'No tienes citas próximas',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Crea tu primera cita médica',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+    return GestureDetector(
+      onTapDown: _onTapDown,
+      onTapUp: _onTapUp,
+      child: ScaleTransition(
+        scale: _scale,
+        child: Container(
+          height: 48,
+          decoration: BoxDecoration(
+            color: widget.isPrimary
+                ? theme.colorScheme.primary
+                : theme.colorScheme.surfaceVariant,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: widget.isPrimary
+                ? [
+                    BoxShadow(
+                      color: theme.colorScheme.primary.withOpacity(0.25),
+                      blurRadius: 10,
+                      offset: const Offset(0, 6),
                     ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        return Column(
-          children: docs.map((d) {
-            final data = d.data() as Map<String, dynamic>;
-            final titulo = (data['titulo']?.toString() ??
-                data['motivo']?.toString() ??
-                'Cita médica');
-            final lugar = data['lugar']?.toString() ?? '—';
-            final ts = data['cuando'] as Timestamp?;
-            final dt = ts?.toDate();
-            final fecha = dt == null ? '—' : DateFormat('dd/MM/yyyy').format(dt);
-            final hora = dt == null ? '—' : DateFormat('hh:mm a').format(dt);
-
-            // ✨ Dismissible para deslizar y eliminar
-            return Dismissible(
-              key: Key(d.id),
-              direction: DismissDirection.endToStart,
-              background: Container(
-                alignment: Alignment.centerRight,
-                padding: const EdgeInsets.only(right: 20),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.error,
-                  borderRadius: BorderRadius.circular(16),
+                  ]
+                : [],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconTheme(
+                data: IconThemeData(
+                  color: widget.isPrimary
+                      ? Colors.white
+                      : theme.colorScheme.primary,
+                  size: 22,
                 ),
-                child: const Icon(
-                  Icons.delete_rounded,
-                  color: Colors.white,
-                  size: 28,
-                ),
+                child: widget.icon,
               ),
-              confirmDismiss: (direction) async {
-                return await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Eliminar cita'),
-                    content: Text('¿Eliminar "$titulo"?'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('Cancelar'),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: theme.colorScheme.error,
-                        ),
-                        child: const Text('Eliminar'),
-                      ),
-                    ],
-                  ),
-                );
-              },
-              onDismissed: (direction) async {
-                await d.reference.delete();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Cita "$titulo" eliminada'),
-                      action: SnackBarAction(
-                        label: 'Deshacer',
-                        onPressed: () {
-                          // Revertir eliminación
-                          d.reference.set(data);
-                        },
-                      ),
-                    ),
-                  );
-                }
-              },
-              child: Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(16),
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      Icons.medical_services_outlined,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                  title: Text(titulo, style: theme.textTheme.titleMedium),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.calendar_today_rounded,
-                              size: 14,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(fecha, style: theme.textTheme.bodySmall),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.access_time_rounded,
-                              size: 14,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(hora, style: theme.textTheme.bodySmall),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.location_on_rounded,
-                              size: 14,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                lugar,
-                                style: theme.textTheme.bodySmall,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  trailing: Icon(
-                    Icons.arrow_forward_ios_rounded,
-                    size: 16,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                  onTap: () => onNavigate(2),
+              const SizedBox(width: 8),
+              DefaultTextStyle(
+                style: TextStyle(
+                  color: widget.isPrimary
+                      ? Colors.white
+                      : theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
                 ),
+                child: widget.label,
               ),
-            );
-          }).toList(),
-        );
-      },
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
