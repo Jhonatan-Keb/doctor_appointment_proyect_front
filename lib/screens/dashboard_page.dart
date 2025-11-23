@@ -34,6 +34,77 @@ class _DashboardScaffold extends StatelessWidget {
 
   const _DashboardScaffold({required this.userId});
 
+  Future<void> _updateStatus(
+    BuildContext context, {
+    required String docId,
+    required String? pacienteId,
+    required String newStatus,
+    required String confirmTitle,
+    required String confirmMessage,
+    required Color confirmColor,
+  }) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(confirmTitle),
+        content: Text(confirmMessage),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: confirmColor),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Confirmar'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+
+      // 1. Actualizar cita global
+      final globalRef =
+          FirebaseFirestore.instance.collection('citas').doc(docId);
+      batch.update(globalRef, {'estado': newStatus});
+
+      // 2. Actualizar cita del paciente (si existe ID)
+      if (pacienteId != null) {
+        final userRef = FirebaseFirestore.instance
+            .collection('usuarios')
+            .doc(pacienteId)
+            .collection('citas')
+            .doc(docId);
+        // Usamos set con merge por si acaso no existiera (aunque debería)
+        batch.set(userRef, {'estado': newStatus}, SetOptions(merge: true));
+      }
+
+      await batch.commit();
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Cita actualizada a: $newStatus'),
+            backgroundColor: confirmColor,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al actualizar: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -57,6 +128,13 @@ class _DashboardScaffold extends StatelessWidget {
           ),
         ),
         actions: [
+          // 👇 NUEVO: icono para ir a la pantalla de gráficas
+          IconButton(
+            icon: const Icon(Icons.bar_chart_rounded),
+            onPressed: () {
+              Navigator.of(context).pushNamed(AppRoutes.graphics);
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
             onPressed: () {
@@ -182,8 +260,7 @@ class _DashboardScaffold extends StatelessWidget {
                             Navigator.of(context).push(
                               MaterialPageRoute(
                                 builder: (_) => Scaffold(
-                                  appBar:
-                                      AppBar(title: const Text('Mensajes')),
+                                  appBar: AppBar(title: const Text('Mensajes')),
                                   body: const MessagesPage(),
                                 ),
                               ),
@@ -289,11 +366,7 @@ class _DashboardScaffold extends StatelessWidget {
                   const SizedBox(height: 8),
 
                   StreamBuilder<QuerySnapshot>(
-                    stream: citasQuery
-                        // si quieres evitar índices, comenta la siguiente línea:
-                        // .orderBy('cuando')
-                        .limit(5)
-                        .snapshots(),
+                    stream: citasQuery.snapshots(),
                     builder: (context, snapshotCitas) {
                       if (snapshotCitas.hasError) {
                         return Text(
@@ -310,7 +383,32 @@ class _DashboardScaffold extends StatelessWidget {
                         );
                       }
 
-                      final docs = snapshotCitas.data!.docs;
+                      // Client-side processing to avoid Firestore Index requirement
+                      final allDocs = snapshotCitas.data!.docs;
+                      final now = DateTime.now();
+
+                      // 1. Filter future appointments (optional, but good for "Próximas")
+                      // 2. Sort by date
+                      final sortedDocs = allDocs.where((doc) {
+                        final data = doc.data() as Map<String, dynamic>;
+                        final ts = data['cuando'] as Timestamp?;
+                        if (ts == null) return false;
+                        return ts.toDate().isAfter(now.subtract(
+                            const Duration(hours: 2))); // Show recent ones too
+                      }).toList()
+                        ..sort((a, b) {
+                          final dataA = a.data() as Map<String, dynamic>;
+                          final dataB = b.data() as Map<String, dynamic>;
+                          final tsA = dataA['cuando'] as Timestamp?;
+                          final tsB = dataB['cuando'] as Timestamp?;
+                          if (tsA == null) return 1;
+                          if (tsB == null) return -1;
+                          return tsA.compareTo(tsB);
+                        });
+
+                      // 3. Limit to 5
+                      final docs = sortedDocs.take(5).toList();
+
                       if (docs.isEmpty) {
                         return Text(
                           'No tienes próximas citas.',
@@ -322,10 +420,8 @@ class _DashboardScaffold extends StatelessWidget {
 
                       return Column(
                         children: docs.map((doc) {
-                          final data =
-                              doc.data() as Map<String, dynamic>;
-                          final motivo =
-                              data['motivo'] ?? 'Consulta médica';
+                          final data = doc.data() as Map<String, dynamic>;
+                          final motivo = data['motivo'] ?? 'Consulta médica';
                           final ts = data['cuando'] as Timestamp?;
                           final fecha = ts?.toDate();
                           final fechaStr = fecha != null
@@ -335,7 +431,15 @@ class _DashboardScaffold extends StatelessWidget {
                                   '${fecha.minute.toString().padLeft(2, '0')}'
                               : 'Sin fecha';
                           final pacienteId =
-                              data['userId'] as String?;
+                              (data['pacienteId'] ?? data['userId']) as String?;
+
+                          final estado = (data['estado'] ?? 'pendiente')
+                              .toString()
+                              .toLowerCase();
+                          final isCancelada = estado == 'cancelada';
+                          final isCompletada =
+                              estado == 'completada' || estado == 'realizada';
+                          final isPendiente = !isCancelada && !isCompletada;
 
                           return FutureBuilder<DocumentSnapshot>(
                             future: pacienteId == null
@@ -344,37 +448,106 @@ class _DashboardScaffold extends StatelessWidget {
                                     .collection('usuarios')
                                     .doc(pacienteId)
                                     .get(),
-                            builder:
-                                (context, snapshotPaciente) {
+                            builder: (context, snapshotPaciente) {
                               String nombrePaciente = 'Paciente';
                               if (snapshotPaciente.hasData &&
-                                  snapshotPaciente.data?.data() !=
-                                      null) {
-                                final d = snapshotPaciente.data!
-                                        .data()
+                                  snapshotPaciente.data?.data() != null) {
+                                final d = snapshotPaciente.data!.data()
                                     as Map<String, dynamic>;
-                                nombrePaciente =
-                                    d['nombre'] ?? 'Paciente';
+                                nombrePaciente = d['nombre'] ?? 'Paciente';
                               }
 
                               return ListTile(
                                 contentPadding:
-                                    const EdgeInsets.symmetric(
-                                        vertical: 4),
+                                    const EdgeInsets.symmetric(vertical: 4),
                                 leading: CircleAvatar(
-                                  backgroundColor: theme
-                                      .colorScheme
-                                      .primaryContainer,
+                                  backgroundColor: isCancelada
+                                      ? theme.colorScheme.errorContainer
+                                      : isCompletada
+                                          ? Colors.green.shade100
+                                          : theme.colorScheme.primaryContainer,
                                   child: Icon(
-                                    Icons.person_rounded,
-                                    color: theme
-                                        .colorScheme.primary,
+                                    isCancelada
+                                        ? Icons.cancel_outlined
+                                        : isCompletada
+                                            ? Icons.check_circle_outline
+                                            : Icons.person_rounded,
+                                    color: isCancelada
+                                        ? theme.colorScheme.error
+                                        : isCompletada
+                                            ? Colors.green.shade800
+                                            : theme.colorScheme.primary,
                                   ),
                                 ),
-                                title: Text(motivo),
-                                subtitle: Text(
-                                  '$nombrePaciente · $fechaStr',
+                                title: Text(
+                                  motivo,
+                                  style: (isCancelada || isCompletada)
+                                      ? const TextStyle(
+                                          decoration:
+                                              TextDecoration.lineThrough,
+                                          color: Colors.grey,
+                                        )
+                                      : null,
                                 ),
+                                subtitle: Text(
+                                  isCancelada
+                                      ? 'CANCELADA • $nombrePaciente'
+                                      : isCompletada
+                                          ? 'COMPLETADA • $nombrePaciente'
+                                          : '$nombrePaciente · $fechaStr',
+                                  style: isCancelada
+                                      ? TextStyle(
+                                          color: theme.colorScheme.error,
+                                          fontWeight: FontWeight.bold,
+                                        )
+                                      : isCompletada
+                                          ? TextStyle(
+                                              color: Colors.green.shade700,
+                                              fontWeight: FontWeight.bold,
+                                            )
+                                          : null,
+                                ),
+                                trailing: isPendiente
+                                    ? Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            tooltip: 'Completar',
+                                            icon: const Icon(
+                                              Icons.check_circle_outline,
+                                              color: Colors.green,
+                                            ),
+                                            onPressed: () => _updateStatus(
+                                              context,
+                                              docId: doc.id,
+                                              pacienteId: pacienteId,
+                                              newStatus: 'completada',
+                                              confirmTitle: 'Completar cita',
+                                              confirmMessage:
+                                                  '¿Marcar esta cita como realizada?',
+                                              confirmColor: Colors.green,
+                                            ),
+                                          ),
+                                          IconButton(
+                                            tooltip: 'Rechazar',
+                                            icon: const Icon(
+                                              Icons.cancel_outlined,
+                                              color: Colors.red,
+                                            ),
+                                            onPressed: () => _updateStatus(
+                                              context,
+                                              docId: doc.id,
+                                              pacienteId: pacienteId,
+                                              newStatus: 'cancelada',
+                                              confirmTitle: 'Rechazar cita',
+                                              confirmMessage:
+                                                  '¿Estás seguro de rechazar/cancelar esta cita?',
+                                              confirmColor: Colors.red,
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : null,
                               );
                             },
                           );
@@ -413,8 +586,7 @@ class _DoctorDashboardDrawer extends StatelessWidget {
                   .doc(userId)
                   .get(),
               builder: (context, snap) {
-                final data =
-                    snap.data?.data() as Map<String, dynamic>? ?? {};
+                final data = snap.data?.data() as Map<String, dynamic>? ?? {};
                 final nombre = (data['nombre'] ?? 'Médico') as String;
 
                 return UserAccountsDrawerHeader(

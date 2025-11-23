@@ -80,9 +80,10 @@ class DoctorDashboardCubit extends Cubit<DoctorDashboardState> {
           final fecha = ts?.toDate();
           final estado =
               (data['estado'] ?? 'pendiente').toString().toLowerCase();
-          final userId = data['userId'] as String?;
+          // Soporte para ambos campos por si hay citas antiguas
+          final pacienteId = (data['pacienteId'] ?? data['userId']) as String?;
 
-          if (userId != null) pacientesUnicos.add(userId);
+          if (pacienteId != null) pacientesUnicos.add(pacienteId);
 
           if (fecha != null &&
               fecha.isAfter(now) &&

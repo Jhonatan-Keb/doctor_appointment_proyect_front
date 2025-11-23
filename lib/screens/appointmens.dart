@@ -34,8 +34,9 @@ class Appointment {
       'medicoId': medicoId,
       'motivo': motivo,
       'lugar': lugar,
-      'creadoEn':
-          createdAt == null ? FieldValue.serverTimestamp() : Timestamp.fromDate(createdAt!),
+      'creadoEn': createdAt == null
+          ? FieldValue.serverTimestamp()
+          : Timestamp.fromDate(createdAt!),
       'titulo': motivo,
     };
   }
@@ -77,7 +78,8 @@ class DoctorAvailability {
   factory DoctorAvailability.fromDoc(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     final inicio = (data['horaInicio'] as Timestamp).toDate();
-    final fin = (data['horaFin'] as Timestamp?)?.toDate() ?? inicio.add(const Duration(hours: 1));
+    final fin = (data['horaFin'] as Timestamp?)?.toDate() ??
+        inicio.add(const Duration(hours: 1));
     return DoctorAvailability(
       id: doc.id,
       medicoId: (data['medicoId'] ?? '').toString(),
@@ -142,17 +144,17 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
         .orderBy('cuando');
 
     if (_startDate != null) {
-      final from = DateTime(_startDate!.year, _startDate!.month, _startDate!.day);
+      final from =
+          DateTime(_startDate!.year, _startDate!.month, _startDate!.day);
       q = q.where('cuando', isGreaterThanOrEqualTo: Timestamp.fromDate(from));
     }
     if (_endDate != null) {
-      final to = DateTime(_endDate!.year, _endDate!.month, _endDate!.day, 23, 59, 59, 999);
+      final to = DateTime(
+          _endDate!.year, _endDate!.month, _endDate!.day, 23, 59, 59, 999);
       q = q.where('cuando', isLessThanOrEqualTo: Timestamp.fromDate(to));
     }
     return q;
   }
-
-  
 
   Future<void> _pickStartDate() async {
     final now = DateTime.now();
@@ -181,29 +183,35 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
     return '${medicoId}_$f';
   }
 
-  Future<void> _deleteWithConfirm(
+  Future<void> _cancelWithConfirm(
     BuildContext context, {
     required DocumentReference docRef,
     required String titulo,
     required DateTime? cuando,
     required String? medicoId,
   }) async {
-    final fechaTxt =
-        cuando == null ? '—' : DateFormat('dd/MM/yyyy – hh:mm a').format(cuando);
+    final fechaTxt = cuando == null
+        ? '—'
+        : DateFormat('dd/MM/yyyy – hh:mm a').format(cuando);
 
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Eliminar cita'),
-        content: Text('¿Estás seguro de eliminar la cita:\n\n"$titulo"\n$fechaTxt ?'),
+        title: const Text('Cancelar cita'),
+        content: Text(
+            '¿Estás seguro de cancelar la cita:\n\n"$titulo"\n$fechaTxt ?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancelar'),
+            child: const Text('Volver'),
           ),
           FilledButton.tonal(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red.shade100,
+              foregroundColor: Colors.red.shade900,
+            ),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Sí, eliminar'),
+            child: const Text('Sí, cancelar'),
           ),
         ],
       ),
@@ -212,11 +220,13 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
     if (ok != true) return;
 
     try {
-      // Eliminar de la subcolección del usuario
-      await docRef.delete();
+      // Soft delete: Actualizar estado a 'cancelada' en la subcolección del usuario
+      await docRef.update({'estado': 'cancelada'});
 
-      // Eliminar de la colección global de citas
+      // Actualizar en la colección global de citas
       if (cuando != null && _uid != null) {
+        // Buscamos la cita global correspondiente
+        // Nota: Idealmente deberíamos tener el ID global guardado, pero por ahora buscamos por campos
         final citasGlobales = await FirebaseFirestore.instance
             .collection('citas')
             .where('pacienteId', isEqualTo: _uid)
@@ -224,16 +234,17 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
             .get();
 
         for (final doc in citasGlobales.docs) {
-          await doc.reference.delete();
+          await doc.reference.update({'estado': 'cancelada'});
         }
 
+        // Liberar disponibilidad del médico
         if (medicoId != null && medicoId.isNotEmpty) {
           final dispId = _dispDocId(medicoId, cuando);
-          
+
           final dispRef = FirebaseFirestore.instance
               .collection('disponibilidad_medicos')
               .doc(dispId);
-          
+
           final dispDoc = await dispRef.get();
           if (dispDoc.exists) {
             await dispRef.update({'esta_disponible': true});
@@ -244,8 +255,9 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Cita eliminada correctamente ✅'),
-            backgroundColor: Colors.green,
+            content: Text(
+                'Cita cancelada correctamente. El médico será notificado.'),
+            backgroundColor: Colors.orange,
           ),
         );
       }
@@ -253,7 +265,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error al eliminar: $e'),
+            content: Text('Error al cancelar: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -261,14 +273,17 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
     }
   }
 
-  Future<void> _editAppointment(BuildContext context, DocumentSnapshot doc) async {
+  Future<void> _editAppointment(
+      BuildContext context, DocumentSnapshot doc) async {
     final data = doc.data() as Map<String, dynamic>;
     final tituloCtrl = TextEditingController(text: data['motivo'] ?? '');
     final lugarCtrl = TextEditingController(text: data['lugar'] ?? '');
-    
+
     final tsInicio = data['cuando'] as Timestamp?;
     DateTime? fecha = tsInicio?.toDate();
-    TimeOfDay? hora = fecha != null ? TimeOfDay(hour: fecha.hour, minute: fecha.minute) : null;
+    TimeOfDay? hora = fecha != null
+        ? TimeOfDay(hour: fecha.hour, minute: fecha.minute)
+        : null;
     String? selMedicoId = data['medicoId']?.toString();
 
     final fechaOriginal = fecha;
@@ -277,7 +292,8 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
       context: context,
       builder: (dialogCtx) {
         return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: Container(
             constraints: const BoxConstraints(maxWidth: 500),
             child: Padding(
@@ -298,7 +314,8 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                       children: [
                         const Text(
                           'Editar cita',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 20),
                         TextField(
@@ -342,14 +359,17 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                                     context: innerCtx,
                                     initialDate: fecha ?? now,
                                     firstDate: now,
-                                    lastDate: now.add(const Duration(days: 365 * 2)),
+                                    lastDate:
+                                        now.add(const Duration(days: 365 * 2)),
                                   );
                                   if (picked != null) {
                                     setSheet(() => fecha = _onlyDate(picked));
                                   }
                                 },
-                                icon: const Icon(Icons.calendar_today, size: 18),
-                                label: Text(fechaTxt, style: const TextStyle(fontSize: 13)),
+                                icon:
+                                    const Icon(Icons.calendar_today, size: 18),
+                                label: Text(fechaTxt,
+                                    style: const TextStyle(fontSize: 13)),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -365,7 +385,8 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                                   }
                                 },
                                 icon: const Icon(Icons.access_time, size: 18),
-                                label: Text(horaTxt, style: const TextStyle(fontSize: 13)),
+                                label: Text(horaTxt,
+                                    style: const TextStyle(fontSize: 13)),
                               ),
                             ),
                           ],
@@ -386,20 +407,29 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                                   final motivo = tituloCtrl.text.trim();
                                   final lugar = lugarCtrl.text.trim();
 
-                                  if (motivo.isEmpty || lugar.isEmpty || selMedicoId == null ||
-                                      fecha == null || hora == null) {
+                                  if (motivo.isEmpty ||
+                                      lugar.isEmpty ||
+                                      selMedicoId == null ||
+                                      fecha == null ||
+                                      hora == null) {
                                     ScaffoldMessenger.of(innerCtx).showSnackBar(
                                       const SnackBar(
-                                        content: Text('Completa todos los campos'),
+                                        content:
+                                            Text('Completa todos los campos'),
                                       ),
                                     );
                                     return;
                                   }
 
                                   final DateTime inicio = DateTime(
-                                    fecha!.year, fecha!.month, fecha!.day, hora!.hour, hora!.minute,
+                                    fecha!.year,
+                                    fecha!.month,
+                                    fecha!.day,
+                                    hora!.hour,
+                                    hora!.minute,
                                   );
-                                  final DateTime fin = inicio.add(const Duration(minutes: 30));
+                                  final DateTime fin =
+                                      inicio.add(const Duration(minutes: 30));
 
                                   try {
                                     await doc.reference.update({
@@ -412,13 +442,18 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                                     });
 
                                     if (fechaOriginal != null) {
-                                      final citasGlobales = await FirebaseFirestore.instance
-                                          .collection('citas')
-                                          .where('pacienteId', isEqualTo: _uid)
-                                          .where('cuando', isEqualTo: Timestamp.fromDate(fechaOriginal))
-                                          .get();
+                                      final citasGlobales =
+                                          await FirebaseFirestore.instance
+                                              .collection('citas')
+                                              .where('pacienteId',
+                                                  isEqualTo: _uid)
+                                              .where('cuando',
+                                                  isEqualTo: Timestamp.fromDate(
+                                                      fechaOriginal))
+                                              .get();
 
-                                      for (final citaDoc in citasGlobales.docs) {
+                                      for (final citaDoc
+                                          in citasGlobales.docs) {
                                         await citaDoc.reference.update({
                                           'motivo': motivo,
                                           'lugar': lugar,
@@ -431,18 +466,22 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
 
                                     if (innerCtx.mounted) {
                                       Navigator.of(dialogCtx).pop();
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
                                         const SnackBar(
-                                          content: Text('Cita actualizada exitosamente ✅'),
+                                          content: Text(
+                                              'Cita actualizada exitosamente ✅'),
                                           backgroundColor: Colors.green,
                                         ),
                                       );
                                     }
                                   } catch (e) {
                                     if (innerCtx.mounted) {
-                                      ScaffoldMessenger.of(innerCtx).showSnackBar(
+                                      ScaffoldMessenger.of(innerCtx)
+                                          .showSnackBar(
                                         SnackBar(
-                                          content: Text('Error al actualizar: $e'),
+                                          content:
+                                              Text('Error al actualizar: $e'),
                                           backgroundColor: Colors.red,
                                         ),
                                       );
@@ -494,8 +533,9 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
         return (m['esta_disponible'] ?? true) == true;
       });
 
-      setState(() => _resultadoDia =
-          anyDisponible ? 'Disponible ese día.' : 'Día ocupado (todos los bloques están tomados).');
+      setState(() => _resultadoDia = anyDisponible
+          ? 'Disponible ese día.'
+          : 'Día ocupado (todos los bloques están tomados).');
     } catch (e) {
       setState(() => _resultadoDia = 'Error al consultar: $e');
     }
@@ -534,7 +574,9 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                     onPressed: _pickStartDate,
                     icon: const Icon(Icons.date_range),
                     label: Text(
-                      _startDate == null ? 'Fecha inicio' : 'Inicio: ${_fmtFecha(_startDate!)}',
+                      _startDate == null
+                          ? 'Fecha inicio'
+                          : 'Inicio: ${_fmtFecha(_startDate!)}',
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -545,7 +587,9 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                     onPressed: _pickEndDate,
                     icon: const Icon(Icons.event),
                     label: Text(
-                      _endDate == null ? 'Fecha fin' : 'Fin: ${_fmtFecha(_endDate!)}',
+                      _endDate == null
+                          ? 'Fecha fin'
+                          : 'Fin: ${_fmtFecha(_endDate!)}',
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -562,9 +606,7 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
               ],
             ),
           ),
-
           const Divider(),
-
           StreamBuilder<QuerySnapshot>(
             stream: _appointmentsQuery().snapshots(),
             builder: (context, snap) {
@@ -585,14 +627,17 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
               if (docs.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.all(32),
-                  child: Center(child: Text('No hay citas en el rango seleccionado.')),
+                  child: Center(
+                      child: Text('No hay citas en el rango seleccionado.')),
                 );
               }
 
               return Column(
                 children: docs.map((d) {
                   final data = d.data() as Map<String, dynamic>;
-                  final titulo = (data['titulo'] ?? data['motivo'] ?? 'Cita médica').toString();
+                  final titulo =
+                      (data['titulo'] ?? data['motivo'] ?? 'Cita médica')
+                          .toString();
                   final lugar = (data['lugar'] ?? '—').toString();
                   final medicoId = data['medicoId']?.toString();
 
@@ -606,39 +651,73 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                     fin = inicio.add(const Duration(minutes: 30));
                   }
 
-                  final fecha = inicio == null ? '—' : DateFormat('dd/MM/yyyy').format(inicio);
-                  final horaInicio = inicio == null ? '—' : DateFormat('HH:mm').format(inicio);
-                  final horaFin = fin == null ? '—' : DateFormat('HH:mm').format(fin);
+                  final fecha = inicio == null
+                      ? '—'
+                      : DateFormat('dd/MM/yyyy').format(inicio);
+                  final horaInicio =
+                      inicio == null ? '—' : DateFormat('HH:mm').format(inicio);
+                  final horaFin =
+                      fin == null ? '—' : DateFormat('HH:mm').format(fin);
+
+                  final estado =
+                      (data['estado'] ?? 'pendiente').toString().toLowerCase();
+                  final isCancelada = estado == 'cancelada';
 
                   return Card(
                     elevation: 2,
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
+                      side: isCancelada
+                          ? BorderSide(color: Colors.red.shade200)
+                          : BorderSide.none,
                     ),
                     child: ListTile(
-                      leading: const Icon(Icons.event_available),
-                      title: Text(titulo, maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text('$fecha  •  $horaInicio - $horaFin  •  $lugar'),
+                      leading: Icon(
+                        isCancelada ? Icons.cancel : Icons.event_available,
+                        color: isCancelada ? Colors.red : null,
+                      ),
+                      title: Text(
+                        titulo,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: isCancelada
+                            ? const TextStyle(
+                                decoration: TextDecoration.lineThrough,
+                                color: Colors.grey)
+                            : null,
+                      ),
+                      subtitle: Text(
+                        isCancelada
+                            ? 'CANCELADA • $fecha'
+                            : '$fecha  •  $horaInicio - $horaFin  •  $lugar',
+                        style: isCancelada
+                            ? const TextStyle(color: Colors.red)
+                            : null,
+                      ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          IconButton(
-                            tooltip: 'Editar',
-                            icon: const Icon(Icons.edit_outlined),
-                            onPressed: () => _editAppointment(context, d),
-                          ),
-                          IconButton(
-                            tooltip: 'Eliminar',
-                            icon: const Icon(Icons.delete_outline, color: Colors.red),
-                            onPressed: () => _deleteWithConfirm(
-                              context,
-                              docRef: d.reference,
-                              titulo: titulo,
-                              cuando: inicio,
-                              medicoId: medicoId,
+                          if (!isCancelada)
+                            IconButton(
+                              tooltip: 'Editar',
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: () => _editAppointment(context, d),
                             ),
-                          ),
+                          if (!isCancelada)
+                            IconButton(
+                              tooltip: 'Cancelar',
+                              icon: const Icon(Icons.cancel_outlined,
+                                  color: Colors.red),
+                              onPressed: () => _cancelWithConfirm(
+                                context,
+                                docRef: d.reference,
+                                titulo: titulo,
+                                cuando: inicio,
+                                medicoId: medicoId,
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -647,11 +726,9 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
               );
             },
           ),
-
           const SizedBox(height: 25),
           const Divider(thickness: 1),
           const SizedBox(height: 10),
-
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 16.0),
             child: Text(
@@ -660,7 +737,6 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
             ),
           ),
           const SizedBox(height: 8),
-
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12.0),
             child: Wrap(
@@ -679,7 +755,6 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
               }).toList(),
             ),
           ),
-
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
             child: Row(
@@ -704,20 +779,18 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
               ],
             ),
           ),
-
           if (_resultadoDia != null)
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Text(_resultadoDia!,
                   style: const TextStyle(fontWeight: FontWeight.w600)),
             ),
-
           const SizedBox(height: 10),
-
           if (_medicoSeleccionado == null)
             const Padding(
               padding: EdgeInsets.all(16.0),
-              child: Text('Selecciona un médico para ver bloques de disponibilidad.'),
+              child: Text(
+                  'Selecciona un médico para ver bloques de disponibilidad.'),
             )
           else if (_diaSeleccionado == null)
             const Padding(
@@ -729,7 +802,9 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
               stream: FirebaseFirestore.instance
                   .collection('disponibilidad_medicos')
                   .where('medicoId', isEqualTo: _medicoSeleccionado)
-                  .where('fecha', isEqualTo: Timestamp.fromDate(_onlyDate(_diaSeleccionado!)))
+                  .where('fecha',
+                      isEqualTo:
+                          Timestamp.fromDate(_onlyDate(_diaSeleccionado!)))
                   .snapshots(),
               builder: (context, snap) {
                 if (snap.hasError) {
@@ -757,7 +832,8 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                   estadoPorInicio[start] = disponible;
                 }
 
-                final todosLosBloques = _generarBloquesDeHora(_diaSeleccionado!);
+                final todosLosBloques =
+                    _generarBloquesDeHora(_diaSeleccionado!);
 
                 final bool hayCatalogo = docs.isNotEmpty;
                 final visibles = <DateTime>[];
@@ -777,23 +853,28 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                     children: [
                       if (visibles.isEmpty)
                         Card(
-                          margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                          margin: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 6),
                           child: ListTile(
                             leading: const Icon(Icons.event_busy),
-                            title: Text('Sin bloques disponibles el ${_fmtFecha(_diaSeleccionado!)}'),
-                            subtitle: const Text('Intenta con otro día u otro médico.'),
+                            title: Text(
+                                'Sin bloques disponibles el ${_fmtFecha(_diaSeleccionado!)}'),
+                            subtitle: const Text(
+                                'Intenta con otro día u otro médico.'),
                           ),
                         )
                       else
                         Column(
                           children: [
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 6),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4.0, vertical: 6),
                               child: Align(
                                 alignment: Alignment.centerLeft,
                                 child: Text(
                                   'Disponibles el ${_fmtFecha(_diaSeleccionado!)}',
-                                  style: const TextStyle(fontWeight: FontWeight.w700),
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700),
                                 ),
                               ),
                             ),
@@ -809,7 +890,9 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                                   avatar: const Icon(Icons.schedule, size: 18),
                                   onSelected: (_) async {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Bloque seleccionado: $etiqueta')),
+                                      SnackBar(
+                                          content: Text(
+                                              'Bloque seleccionado: $etiqueta')),
                                     );
                                   },
                                 );
@@ -817,14 +900,15 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                             ),
                           ],
                         ),
-
                       if (estadoPorInicio.values.any((v) => v == false))
                         Padding(
                           padding: const EdgeInsets.only(top: 16.0),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Ocupados', style: TextStyle(fontWeight: FontWeight.w700)),
+                              const Text('Ocupados',
+                                  style:
+                                      TextStyle(fontWeight: FontWeight.w700)),
                               const SizedBox(height: 6),
                               Wrap(
                                 spacing: 8,
@@ -837,7 +921,8 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                                       '${_fmtHora(s)} - ${_fmtHora(s.add(const Duration(hours: 1)))}';
                                   return Chip(
                                     label: Text(etiqueta),
-                                    avatar: const Icon(Icons.lock_clock, size: 18),
+                                    avatar:
+                                        const Icon(Icons.lock_clock, size: 18),
                                     backgroundColor: Colors.grey.shade200,
                                   );
                                 }).toList(),

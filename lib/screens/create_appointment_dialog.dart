@@ -41,8 +41,7 @@ class _CreateAppointmentDialogState extends State<CreateAppointmentDialog> {
   final TextEditingController _notasCtrl = TextEditingController();
 
   String? _selectedDoctorId;
-  DateTime _selectedDateTime =
-      DateTime.now().add(const Duration(hours: 1));
+  DateTime _selectedDateTime = DateTime.now().add(const Duration(hours: 1));
 
   bool _saving = false;
 
@@ -111,35 +110,67 @@ class _CreateAppointmentDialogState extends State<CreateAppointmentDialog> {
     setState(() => _saving = true);
 
     try {
-      await FirebaseFirestore.instance.collection('citas').add({
-        'userId': user.uid,
+      final batch = FirebaseFirestore.instance.batch();
+
+      // Referencia para la colección global
+      final globalRef = FirebaseFirestore.instance.collection('citas').doc();
+
+      // Referencia para la subcolección del usuario
+      final userRef = FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(user.uid)
+          .collection('citas')
+          .doc(globalRef.id); // Usamos el mismo ID para facilitar referencias
+
+      final startTime = _selectedDateTime;
+      final endTime =
+          startTime.add(const Duration(minutes: 30)); // Duración por defecto
+
+      final data = {
+        'pacienteId': user.uid, // Antes userId
         'medicoId': _selectedDoctorId,
         'motivo': _motivoCtrl.text.trim(),
+        'titulo':
+            _motivoCtrl.text.trim(), // Agregamos titulo para compatibilidad
         'lugar': _lugarCtrl.text.trim(),
         'notas': _notasCtrl.text.trim(),
-        'cuando': Timestamp.fromDate(_selectedDateTime),
+        'cuando': Timestamp.fromDate(startTime),
+        'cuandoFin': Timestamp.fromDate(endTime),
         'estado': 'pendiente',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+        'creadoEn': FieldValue.serverTimestamp(), // Antes createdAt
+      };
 
-      Navigator.of(context).pop();
+      batch.set(globalRef, data);
+      batch.set(userRef, data);
 
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('Cita creada correctamente')),
-      );
+      await batch.commit();
+
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text('Cita creada correctamente ✅'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
-      setState(() => _saving = false);
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text('Error al crear cita: $e')),
-      );
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content: Text('Error al crear cita: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final fechaStr =
-        DateFormat('dd/MM/yyyy – HH:mm').format(_selectedDateTime);
+    final fechaStr = DateFormat('dd/MM/yyyy – HH:mm').format(_selectedDateTime);
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
@@ -213,8 +244,7 @@ class _CreateAppointmentDialogState extends State<CreateAppointmentDialog> {
                 StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('usuarios')
-                      .where('rol', whereIn: ['Médico', 'medico'])
-                      .snapshots(),
+                      .where('rol', whereIn: ['Médico', 'medico']).snapshots(),
                   builder: (context, snapshot) {
                     if (snapshot.hasError) {
                       return Text(
@@ -238,8 +268,7 @@ class _CreateAppointmentDialogState extends State<CreateAppointmentDialog> {
                       return InputDecorator(
                         decoration: const InputDecoration(
                           labelText: 'Doctor',
-                          prefixIcon:
-                              Icon(Icons.local_hospital_outlined),
+                          prefixIcon: Icon(Icons.local_hospital_outlined),
                         ),
                         child: Text(
                           'Aún no hay cuentas de médicos.\n'
@@ -260,10 +289,8 @@ class _CreateAppointmentDialogState extends State<CreateAppointmentDialog> {
                             EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                       ),
                       items: docs.map((doc) {
-                        final data =
-                            doc.data() as Map<String, dynamic>;
-                        final nombre =
-                            (data['nombre'] ?? 'Médico') as String;
+                        final data = doc.data() as Map<String, dynamic>;
+                        final nombre = (data['nombre'] ?? 'Médico') as String;
 
                         return DropdownMenuItem<String>(
                           value: doc.id,
