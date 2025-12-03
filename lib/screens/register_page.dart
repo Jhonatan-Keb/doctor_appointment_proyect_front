@@ -24,6 +24,7 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _loading = false;
 
   String _selectedRole = 'Paciente';
+  String? _selectedClinic;
 
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
@@ -31,8 +32,7 @@ class _RegisterPageState extends State<RegisterPage> {
     setState(() => _loading = true);
 
     try {
-      final cred = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
+      final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: emailController.text.trim(),
         password: passwordController.text.trim(),
       );
@@ -41,20 +41,18 @@ class _RegisterPageState extends State<RegisterPage> {
 
       final rol = _selectedRole;
       final tipoUsuario = rol.toLowerCase();
-      final especialidad = rol.toLowerCase() == 'médico' ||
-              rol.toLowerCase() == 'medico'
-          ? especialidadController.text.trim()
-          : null;
+      final especialidad =
+          rol.toLowerCase() == 'médico' || rol.toLowerCase() == 'medico'
+              ? especialidadController.text.trim()
+              : null;
 
-      await FirebaseFirestore.instance
-          .collection('usuarios')
-          .doc(uid)
-          .set({
+      await FirebaseFirestore.instance.collection('usuarios').doc(uid).set({
         'email': emailController.text.trim(),
         'nombre': nameController.text.trim(),
         'rol': rol,
         'tipo_usuario': tipoUsuario,
         'especialidad': especialidad,
+        'clinica': _selectedClinic,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -239,7 +237,7 @@ class _RegisterPageState extends State<RegisterPage> {
                     const SizedBox(height: 16),
 
                     // Especialidad (solo para médico)
-                    if (_selectedRole == 'Médico')
+                    if (_selectedRole == 'Médico') ...[
                       TextFormField(
                         controller: especialidadController,
                         decoration: const InputDecoration(
@@ -255,6 +253,30 @@ class _RegisterPageState extends State<RegisterPage> {
                           return null;
                         },
                       ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        value: _selectedClinic,
+                        decoration: const InputDecoration(
+                          labelText: 'Clínica',
+                          prefixIcon: Icon(Icons.local_hospital_outlined),
+                        ),
+                        items: const [
+                          DropdownMenuItem(value: 'T1', child: Text('T1')),
+                          DropdownMenuItem(
+                              value: 'Heroes', child: Text('Heroes')),
+                          DropdownMenuItem(
+                              value: 'Pacaptun', child: Text('Pacaptun')),
+                        ],
+                        onChanged: (val) =>
+                            setState(() => _selectedClinic = val),
+                        validator: (val) {
+                          if (_selectedRole == 'Médico' && val == null) {
+                            return 'Selecciona una clínica';
+                          }
+                          return null;
+                        },
+                      ),
+                    ],
 
                     const SizedBox(height: 24),
 
@@ -266,7 +288,8 @@ class _RegisterPageState extends State<RegisterPage> {
                             ? const SizedBox(
                                 height: 20,
                                 width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Text('Registrarse'),
                       ),

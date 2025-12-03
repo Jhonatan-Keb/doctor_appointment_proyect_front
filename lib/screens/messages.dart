@@ -17,10 +17,8 @@ class MessagesPage extends StatelessWidget {
     }
 
     return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('usuarios')
-          .doc(user.uid)
-          .get(),
+      future:
+          FirebaseFirestore.instance.collection('usuarios').doc(user.uid).get(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(
@@ -73,8 +71,7 @@ class _PatientDoctorsList extends StatelessWidget {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection('usuarios')
-          .where('rol', whereIn: ['Médico', 'medico'])
-          .snapshots(),
+          .where('rol', whereIn: ['Médico', 'medico']).snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(
@@ -157,13 +154,13 @@ class _DoctorConversationsList extends StatelessWidget {
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
-          .collection('citas')
-          .where('medicoId', isEqualTo: medicoId)
+          .collection('chats')
+          .where('participants', arrayContains: medicoId)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(
-            child: Text('Error al cargar citas: ${snapshot.error}'),
+            child: Text('Error al cargar chats: ${snapshot.error}'),
           );
         }
 
@@ -171,70 +168,77 @@ class _DoctorConversationsList extends StatelessWidget {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final citas = snapshot.data!.docs;
+        // Ordenar en cliente para evitar error de índice compuesto
+        final chats = snapshot.data!.docs.toList()
+          ..sort((a, b) {
+            final dataA = a.data() as Map<String, dynamic>;
+            final dataB = b.data() as Map<String, dynamic>;
+            final tsA = dataA['updatedAt'] as Timestamp?;
+            final tsB = dataB['updatedAt'] as Timestamp?;
+            if (tsA == null) return 1;
+            if (tsB == null) return -1;
+            return tsB.compareTo(tsA); // Descendente
+          });
 
-        if (citas.isEmpty) {
+        if (chats.isEmpty) {
           return const Center(
             child: Text(
-              'Aún no tienes citas asignadas.\n'
-              'Cuando los pacientes agenden contigo, aparecerán aquí.',
+              'Aún no tienes mensajes.\n'
+              'Los chats con tus pacientes aparecerán aquí.',
               textAlign: TextAlign.center,
             ),
           );
         }
 
-        final Set<String> patientIds = {};
-        for (var c in citas) {
-          final data = c.data() as Map<String, dynamic>;
-          final pid = data['userId'] as String?;
-          if (pid != null) patientIds.add(pid);
-        }
-
-        final idsList = patientIds.toList();
-
         return ListView.separated(
-          itemCount: idsList.length,
+          itemCount: chats.length,
           separatorBuilder: (_, __) => const SizedBox(height: 8),
           itemBuilder: (context, index) {
-            final pacienteId = idsList[index];
+            final chatDoc = chats[index];
+            final chatData = chatDoc.data() as Map<String, dynamic>;
+            final participants =
+                List<String>.from(chatData['participants'] ?? []);
+
+            // Identificar al otro participante
+            final otherId = participants.firstWhere(
+              (id) => id != medicoId,
+              orElse: () => '',
+            );
+
+            if (otherId.isEmpty) return const SizedBox.shrink();
+
+            final ultimoMensaje =
+                chatData['ultimoMensaje'] ?? 'Imagen / Archivo';
 
             return FutureBuilder<DocumentSnapshot>(
               future: FirebaseFirestore.instance
                   .collection('usuarios')
-                  .doc(pacienteId)
+                  .doc(otherId)
                   .get(),
               builder: (context, snapshotUser) {
-                if (snapshotUser.hasError) {
-                  return ListTile(
-                    title: Text(
-                        'Error al cargar paciente: ${snapshotUser.error}'),
-                  );
-                }
-
-                if (!snapshotUser.hasData ||
-                    snapshotUser.data?.data() == null) {
+                if (!snapshotUser.hasData) {
                   return const ListTile(
-                    title: Text('Cargando paciente...'),
+                    title: Text('Cargando...'),
                   );
                 }
 
                 final dataUser =
-                    snapshotUser.data!.data() as Map<String, dynamic>;
-                final nombre = dataUser['nombre'] ?? 'Paciente';
-                final email = dataUser['email'] ?? '';
+                    snapshotUser.data!.data() as Map<String, dynamic>? ?? {};
+                final nombre = dataUser['nombre'] ?? 'Usuario';
 
                 return _ConversationTile(
                   title: nombre.toString(),
-                  subtitle: email.toString(),
+                  subtitle: ultimoMensaje.toString(),
                   trailing: const SizedBox.shrink(),
                   leadingIcon: Icons.person_rounded,
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => ChatPage(
-                          otherUserId: pacienteId,
+                          otherUserId: otherId,
                           otherUserName: nombre.toString(),
-                          otherUserRole: 'Paciente',
+                          otherUserRole:
+                              'Paciente', // Asumimos paciente por ahora
                         ),
                       ),
                     );
@@ -352,8 +356,7 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Future<void> _ensureChatDocument(String currentUserId) async {
-    final chatRef =
-        FirebaseFirestore.instance.collection('chats').doc(_chatId);
+    final chatRef = FirebaseFirestore.instance.collection('chats').doc(_chatId);
 
     await chatRef.set({
       'participants': [currentUserId, widget.otherUserId],
@@ -366,8 +369,7 @@ class _ChatPageState extends State<ChatPage> {
     if (text.isEmpty) return;
 
     final user = _auth.currentUser!;
-    final chatRef =
-        FirebaseFirestore.instance.collection('chats').doc(_chatId);
+    final chatRef = FirebaseFirestore.instance.collection('chats').doc(_chatId);
 
     await chatRef.collection('mensajes').add({
       'senderId': user.uid,
@@ -437,8 +439,7 @@ class _ChatPageState extends State<ChatPage> {
                   padding: const EdgeInsets.all(12),
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
-                    final data =
-                        messages[index].data() as Map<String, dynamic>;
+                    final data = messages[index].data() as Map<String, dynamic>;
                     final isMine = data['senderId'] == user.uid;
                     final text = data['text'] ?? '';
                     final ts = data['createdAt'] as Timestamp?;
@@ -447,9 +448,8 @@ class _ChatPageState extends State<ChatPage> {
                         : '';
 
                     return Align(
-                      alignment: isMine
-                          ? Alignment.centerRight
-                          : Alignment.centerLeft,
+                      alignment:
+                          isMine ? Alignment.centerRight : Alignment.centerLeft,
                       child: Container(
                         margin: const EdgeInsets.symmetric(vertical: 4),
                         padding: const EdgeInsets.symmetric(
@@ -462,10 +462,8 @@ class _ChatPageState extends State<ChatPage> {
                               ? theme.colorScheme.primary
                               : theme.colorScheme.surfaceVariant,
                           borderRadius: BorderRadius.circular(14).copyWith(
-                            bottomLeft:
-                                Radius.circular(isMine ? 14 : 2),
-                            bottomRight:
-                                Radius.circular(isMine ? 2 : 14),
+                            bottomLeft: Radius.circular(isMine ? 14 : 2),
+                            bottomRight: Radius.circular(isMine ? 2 : 14),
                           ),
                         ),
                         child: Column(
@@ -501,8 +499,7 @@ class _ChatPageState extends State<ChatPage> {
           const Divider(height: 1),
           SafeArea(
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               child: Row(
                 children: [
                   Expanded(

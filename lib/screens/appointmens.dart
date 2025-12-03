@@ -106,15 +106,8 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
   DateTime? _startDate;
   DateTime? _endDate;
 
-  static const _medicos = <Map<String, String>>[
-    {'id': 'dr_lopez', 'nombre': 'Dr. López'},
-    {'id': 'dra_martinez', 'nombre': 'Dra. Martínez'},
-    {'id': 'dr_ramirez', 'nombre': 'Dr. Ramírez'},
-    {'id': 'dra_gomez', 'nombre': 'Dra. Gómez'},
-    {'id': 'dr_perez', 'nombre': 'Dr. Pérez'},
-    {'id': 'dra_ruiz', 'nombre': 'Dra. Ruiz'},
-    {'id': 'dr_castro', 'nombre': 'Dr. Castro'},
-  ];
+  // _medicos removed
+
   String? _medicoSeleccionado;
   DateTime? _diaSeleccionado;
   String? _resultadoDia;
@@ -286,6 +279,9 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
         : null;
     String? selMedicoId = data['medicoId']?.toString();
 
+    // Validar que el médico exista en la lista actual para evitar error en Dropdown
+    // (Omitido: Ahora lo manejamos con StreamBuilder y si el ID no está, el Dropdown lo ignorará o se manejará en el builder)
+
     final fechaOriginal = fecha;
 
     await showDialog(
@@ -326,28 +322,75 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        TextField(
-                          controller: lugarCtrl,
+                        DropdownButtonFormField<String>(
+                          value: lugarCtrl.text.isEmpty ? null : lugarCtrl.text,
                           decoration: const InputDecoration(
-                            labelText: 'Lugar / Clínica',
+                            labelText: 'Clínica',
                             border: OutlineInputBorder(),
                           ),
+                          items: const [
+                            DropdownMenuItem(value: 'T1', child: Text('T1')),
+                            DropdownMenuItem(
+                                value: 'Heroes', child: Text('Heroes')),
+                            DropdownMenuItem(
+                                value: 'Pacaptun', child: Text('Pacaptun')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              setSheet(() {
+                                lugarCtrl.text = val;
+                                selMedicoId = null; // Reset doctor selection
+                              });
+                            }
+                          },
+                          validator: (val) =>
+                              val == null ? 'Selecciona una clínica' : null,
                         ),
                         const SizedBox(height: 16),
-                        DropdownButtonFormField<String>(
-                          value: selMedicoId,
-                          items: _medicos
-                              .map((m) => DropdownMenuItem(
-                                    value: m['id'],
-                                    child: Text(m['nombre']!),
-                                  ))
-                              .toList(),
-                          onChanged: (v) => setSheet(() => selMedicoId = v),
-                          decoration: const InputDecoration(
-                            labelText: 'Médico',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
+                        if (lugarCtrl.text.isNotEmpty)
+                          StreamBuilder<QuerySnapshot>(
+                            stream: FirebaseFirestore.instance
+                                .collection('usuarios')
+                                .where('rol', whereIn: ['Médico', 'medico'])
+                                .where('clinica', isEqualTo: lugarCtrl.text)
+                                .snapshots(),
+                            builder: (context, snapshot) {
+                              if (!snapshot.hasData) {
+                                return const LinearProgressIndicator();
+                              }
+                              final docs = snapshot.data!.docs;
+                              if (docs.isEmpty) {
+                                return const Text(
+                                    'No hay médicos en esta clínica.');
+                              }
+                              return DropdownButtonFormField<String>(
+                                value: selMedicoId,
+                                items: docs.map((d) {
+                                  final data = d.data() as Map<String, dynamic>;
+                                  final nombre =
+                                      (data['nombre'] ?? 'Médico').toString();
+                                  return DropdownMenuItem(
+                                    value: d.id,
+                                    child: Text(nombre),
+                                  );
+                                }).toList(),
+                                onChanged: (v) =>
+                                    setSheet(() => selMedicoId = v),
+                                decoration: const InputDecoration(
+                                  labelText: 'Médico',
+                                  border: OutlineInputBorder(),
+                                ),
+                                validator: (val) {
+                                  // Si el ID actual no está en la lista (ej. médico borrado),
+                                  // el dropdown puede fallar o mostrarse vacío.
+                                  // Aquí permitimos null si no se ha seleccionado.
+                                  return null;
+                                },
+                              );
+                            },
+                          )
+                        else
+                          const Text('Selecciona una clínica primero.'),
                         const SizedBox(height: 16),
                         Row(
                           children: [
@@ -430,6 +473,82 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                                   );
                                   final DateTime fin =
                                       inicio.add(const Duration(minutes: 30));
+
+                                  // --- VALIDACIÓN DE TRASLAPE (OVERLAP) ---
+                                  try {
+                                    final startOfDay = DateTime(
+                                        inicio.year, inicio.month, inicio.day);
+                                    final endOfDay =
+                                        startOfDay.add(const Duration(days: 1));
+
+                                    final querySnapshot =
+                                        await FirebaseFirestore.instance
+                                            .collection('citas')
+                                            .where('medicoId',
+                                                isEqualTo: selMedicoId)
+                                            .get();
+
+                                    bool hayTraslape = false;
+                                    for (final d in querySnapshot.docs) {
+                                      // Ignorar la misma cita que estamos editando
+                                      if (d.id == doc.id) continue;
+
+                                      final dData = d.data();
+                                      final estado =
+                                          (dData['estado'] ?? 'pendiente')
+                                              .toString()
+                                              .toLowerCase();
+                                      if (estado == 'cancelada') continue;
+
+                                      final existingStart =
+                                          (dData['cuando'] as Timestamp)
+                                              .toDate();
+                                      final existingEnd =
+                                          (dData['cuandoFin'] as Timestamp)
+                                              .toDate();
+
+                                      // Filtrar por día
+                                      if (existingStart.isBefore(startOfDay) ||
+                                          existingStart.isAfter(endOfDay)) {
+                                        continue;
+                                      }
+
+                                      // Checar traslape
+                                      if (inicio.isBefore(existingEnd) &&
+                                          fin.isAfter(existingStart)) {
+                                        hayTraslape = true;
+                                        break;
+                                      }
+                                    }
+
+                                    if (hayTraslape) {
+                                      if (innerCtx.mounted) {
+                                        ScaffoldMessenger.of(innerCtx)
+                                            .showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                                'El médico ya tiene una cita en ese horario.'),
+                                            backgroundColor: Colors.orange,
+                                          ),
+                                        );
+                                      }
+                                      return;
+                                    }
+                                  } catch (e) {
+                                    debugPrint('Error validando traslape: $e');
+                                    // Si falla la validación, decidimos si continuar o no.
+                                    // Por seguridad, mejor avisar.
+                                    if (innerCtx.mounted) {
+                                      ScaffoldMessenger.of(innerCtx)
+                                          .showSnackBar(
+                                        SnackBar(
+                                            content: Text(
+                                                'Error al validar horario: $e')),
+                                      );
+                                    }
+                                    return;
+                                  }
+                                  // ----------------------------------------
 
                                   try {
                                     await doc.reference.update({
@@ -662,63 +781,109 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
                   final estado =
                       (data['estado'] ?? 'pendiente').toString().toLowerCase();
                   final isCancelada = estado == 'cancelada';
+                  final isCompletada =
+                      estado == 'completada' || estado == 'realizada';
 
-                  return Card(
-                    elevation: 2,
-                    margin:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: isCancelada
-                          ? BorderSide(color: Colors.red.shade200)
-                          : BorderSide.none,
+                  return Dismissible(
+                    key: Key(d.id),
+                    direction: (isCancelada || isCompletada)
+                        ? DismissDirection.none
+                        : DismissDirection.endToStart,
+                    background: Container(
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20),
+                      child: Icon(Icons.cancel_outlined,
+                          color: Colors.red.shade900),
                     ),
-                    child: ListTile(
-                      leading: Icon(
-                        isCancelada ? Icons.cancel : Icons.event_available,
-                        color: isCancelada ? Colors.red : null,
+                    confirmDismiss: (direction) async {
+                      await _cancelWithConfirm(
+                        context,
+                        docRef: d.reference,
+                        titulo: titulo,
+                        cuando: inicio,
+                        medicoId: medicoId,
+                      );
+                      // Retornamos false para que no se elimine visualmente de la lista
+                      // (ya que queremos mostrarla como "cancelada" en rojo).
+                      return false;
+                    },
+                    child: Card(
+                      elevation: 2,
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 6),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: isCancelada
+                            ? BorderSide(color: Colors.red.shade200)
+                            : isCompletada
+                                ? BorderSide(color: Colors.green.shade200)
+                                : BorderSide.none,
                       ),
-                      title: Text(
-                        titulo,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: isCancelada
-                            ? const TextStyle(
-                                decoration: TextDecoration.lineThrough,
-                                color: Colors.grey)
-                            : null,
-                      ),
-                      subtitle: Text(
-                        isCancelada
-                            ? 'CANCELADA • $fecha'
-                            : '$fecha  •  $horaInicio - $horaFin  •  $lugar',
-                        style: isCancelada
-                            ? const TextStyle(color: Colors.red)
-                            : null,
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (!isCancelada)
-                            IconButton(
-                              tooltip: 'Editar',
-                              icon: const Icon(Icons.edit_outlined),
-                              onPressed: () => _editAppointment(context, d),
-                            ),
-                          if (!isCancelada)
-                            IconButton(
-                              tooltip: 'Cancelar',
-                              icon: const Icon(Icons.cancel_outlined,
-                                  color: Colors.red),
-                              onPressed: () => _cancelWithConfirm(
-                                context,
-                                docRef: d.reference,
-                                titulo: titulo,
-                                cuando: inicio,
-                                medicoId: medicoId,
+                      child: ListTile(
+                        leading: Icon(
+                          isCancelada
+                              ? Icons.cancel
+                              : isCompletada
+                                  ? Icons.check_circle
+                                  : Icons.event_available,
+                          color: isCancelada
+                              ? Colors.red
+                              : isCompletada
+                                  ? Colors.green
+                                  : null,
+                        ),
+                        title: Text(
+                          titulo,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: (isCancelada || isCompletada)
+                              ? const TextStyle(
+                                  decoration: TextDecoration.lineThrough,
+                                  color: Colors.grey)
+                              : null,
+                        ),
+                        subtitle: Text(
+                          isCancelada
+                              ? 'CANCELADA • $fecha'
+                              : isCompletada
+                                  ? 'COMPLETADA • $fecha'
+                                  : '$fecha  •  $horaInicio - $horaFin  •  $lugar',
+                          style: isCancelada
+                              ? const TextStyle(color: Colors.red)
+                              : isCompletada
+                                  ? const TextStyle(color: Colors.green)
+                                  : null,
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (!isCancelada && !isCompletada)
+                              IconButton(
+                                tooltip: 'Editar',
+                                icon: const Icon(Icons.edit_outlined),
+                                onPressed: () => _editAppointment(context, d),
                               ),
-                            ),
-                        ],
+                            if (!isCancelada && !isCompletada)
+                              IconButton(
+                                tooltip: 'Cancelar',
+                                icon: const Icon(Icons.cancel_outlined,
+                                    color: Colors.red),
+                                onPressed: () => _cancelWithConfirm(
+                                  context,
+                                  docRef: d.reference,
+                                  titulo: titulo,
+                                  cuando: inicio,
+                                  medicoId: medicoId,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   );
@@ -739,20 +904,36 @@ class _MyAppointmentsPageState extends State<MyAppointmentsPage> {
           const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12.0),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _medicos.map((m) {
-                final selected = _medicoSeleccionado == m['id'];
-                return ChoiceChip(
-                  label: Text(m['nombre']!),
-                  selected: selected,
-                  onSelected: (_) => setState(() {
-                    _medicoSeleccionado = m['id'];
-                    _resultadoDia = null;
-                  }),
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('usuarios')
+                  .where('rol', whereIn: ['Médico', 'medico']).snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) return Text('Error: ${snapshot.error}');
+                if (!snapshot.hasData) return const CircularProgressIndicator();
+
+                final docs = snapshot.data!.docs;
+                if (docs.isEmpty)
+                  return const Text('No hay médicos registrados.');
+
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: docs.map((d) {
+                    final data = d.data() as Map<String, dynamic>;
+                    final nombre = (data['nombre'] ?? 'Médico').toString();
+                    final selected = _medicoSeleccionado == d.id;
+                    return ChoiceChip(
+                      label: Text(nombre),
+                      selected: selected,
+                      onSelected: (_) => setState(() {
+                        _medicoSeleccionado = d.id;
+                        _resultadoDia = null;
+                      }),
+                    );
+                  }).toList(),
                 );
-              }).toList(),
+              },
             ),
           ),
           Padding(

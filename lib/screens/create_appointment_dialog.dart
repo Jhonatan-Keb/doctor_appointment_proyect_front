@@ -140,6 +140,48 @@ class _CreateAppointmentDialogState extends State<CreateAppointmentDialog> {
         'creadoEn': FieldValue.serverTimestamp(), // Antes createdAt
       };
 
+      // Validar superposición de citas
+      // NOTA: Para evitar crear índices compuestos en Firestore (que requieren configuración manual),
+      // traemos las citas del médico y filtramos en memoria. Para una app real con miles de citas,
+      // se recomienda crear el índice y usar la query compuesta.
+      final querySnapshot = await FirebaseFirestore.instance
+          .collection('citas')
+          .where('medicoId', isEqualTo: _selectedDoctorId)
+          .get();
+
+      final startOfDay =
+          DateTime(startTime.year, startTime.month, startTime.day);
+      final endOfDay = startOfDay.add(const Duration(days: 1));
+
+      for (final doc in querySnapshot.docs) {
+        final data = doc.data();
+        final existingStart = (data['cuando'] as Timestamp).toDate();
+        final existingEnd = (data['cuandoFin'] as Timestamp).toDate();
+        final estado = (data['estado'] ?? 'pendiente').toString().toLowerCase();
+
+        if (estado == 'cancelada') continue;
+
+        // Filtrar primero por día (optimización en memoria)
+        if (existingStart.isBefore(startOfDay) ||
+            existingStart.isAfter(endOfDay)) {
+          continue;
+        }
+
+        // Check overlap: (StartA < EndB) and (EndA > StartB)
+        if (startTime.isBefore(existingEnd) && endTime.isAfter(existingStart)) {
+          if (mounted) {
+            setState(() => _saving = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('El médico ya tiene una cita en ese horario.'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
+        }
+      }
+
       batch.set(globalRef, data);
       batch.set(userRef, data);
 
@@ -212,12 +254,28 @@ class _CreateAppointmentDialogState extends State<CreateAppointmentDialog> {
                 ),
                 const SizedBox(height: 12),
 
-                TextFormField(
-                  controller: _lugarCtrl,
+                DropdownButtonFormField<String>(
+                  value: _lugarCtrl.text.isEmpty ? null : _lugarCtrl.text,
                   decoration: const InputDecoration(
-                    labelText: 'Lugar / Clínica',
-                    prefixIcon: Icon(Icons.location_on_outlined),
+                    labelText: 'Clínica',
+                    prefixIcon: Icon(Icons.location_city),
                   ),
+                  items: const [
+                    DropdownMenuItem(value: 'T1', child: Text('T1')),
+                    DropdownMenuItem(value: 'Heroes', child: Text('Heroes')),
+                    DropdownMenuItem(
+                        value: 'Pacaptun', child: Text('Pacaptun')),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() {
+                        _lugarCtrl.text = val;
+                        _selectedDoctorId = null; // Reset doctor selection
+                      });
+                    }
+                  },
+                  validator: (val) =>
+                      val == null ? 'Selecciona una clínica' : null,
                 ),
                 const SizedBox(height: 12),
 
@@ -241,76 +299,80 @@ class _CreateAppointmentDialogState extends State<CreateAppointmentDialog> {
                 const SizedBox(height: 12),
 
                 // ===== Dropdown de doctores (solo nombres reales) =====
-                StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance
-                      .collection('usuarios')
-                      .where('rol', whereIn: ['Médico', 'medico']).snapshots(),
-                  builder: (context, snapshot) {
-                    if (snapshot.hasError) {
-                      return Text(
-                        'Error al cargar médicos: ${snapshot.error}',
-                        style: TextStyle(
-                          color: theme.colorScheme.error,
-                        ),
-                      );
-                    }
+                if (_lugarCtrl.text.isNotEmpty)
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('usuarios')
+                        .where('rol', whereIn: ['Médico', 'medico'])
+                        .where('clinica', isEqualTo: _lugarCtrl.text)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasError) {
+                        return Text(
+                          'Error al cargar médicos: ${snapshot.error}',
+                          style: TextStyle(
+                            color: theme.colorScheme.error,
+                          ),
+                        );
+                      }
 
-                    if (!snapshot.hasData) {
-                      return const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: LinearProgressIndicator(),
-                      );
-                    }
+                      if (!snapshot.hasData) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: LinearProgressIndicator(),
+                        );
+                      }
 
-                    final docs = snapshot.data!.docs;
+                      final docs = snapshot.data!.docs;
 
-                    if (docs.isEmpty) {
-                      return InputDecorator(
+                      if (docs.isEmpty) {
+                        return InputDecorator(
+                          decoration: const InputDecoration(
+                            labelText: 'Doctor',
+                            prefixIcon: Icon(Icons.local_hospital_outlined),
+                          ),
+                          child: Text(
+                            'No hay médicos disponibles en ${_lugarCtrl.text}.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        );
+                      }
+
+                      return DropdownButtonFormField<String>(
+                        value: _selectedDoctorId,
                         decoration: const InputDecoration(
                           labelText: 'Doctor',
                           prefixIcon: Icon(Icons.local_hospital_outlined),
+                          contentPadding:
+                              EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                         ),
-                        child: Text(
-                          'Aún no hay cuentas de médicos.\n'
-                          'Cuando se registren médicos, podrás seleccionarlos aquí.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
+                        items: docs.map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          final nombre = (data['nombre'] ?? 'Médico') as String;
+
+                          return DropdownMenuItem<String>(
+                            value: doc.id,
+                            child: Text(nombre),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedDoctorId = value;
+                          });
+                        },
+                        validator: (value) {
+                          if (value == null) {
+                            return 'Selecciona un doctor';
+                          }
+                          return null;
+                        },
                       );
-                    }
-
-                    return DropdownButtonFormField<String>(
-                      value: _selectedDoctorId,
-                      decoration: const InputDecoration(
-                        labelText: 'Doctor',
-                        prefixIcon: Icon(Icons.local_hospital_outlined),
-                        contentPadding:
-                            EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                      ),
-                      items: docs.map((doc) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        final nombre = (data['nombre'] ?? 'Médico') as String;
-
-                        return DropdownMenuItem<String>(
-                          value: doc.id,
-                          child: Text(nombre),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedDoctorId = value;
-                        });
-                      },
-                      validator: (value) {
-                        if (value == null) {
-                          return 'Selecciona un doctor';
-                        }
-                        return null;
-                      },
-                    );
-                  },
-                ),
+                    },
+                  )
+                else
+                  const Text('Selecciona una clínica para ver los doctores.'),
 
                 const SizedBox(height: 12),
 

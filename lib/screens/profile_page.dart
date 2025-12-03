@@ -19,6 +19,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   String _rol = 'Paciente';
   String _genero = 'Prefiero no decir';
+  String? _clinica;
   List<String> _especialidades = [];
 
   bool _loading = false;
@@ -57,11 +58,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
       _rol = (data['rol'] ?? 'Paciente') as String;
       _genero = (data['genero'] ?? 'Prefiero no decir') as String;
+      _clinica = data['clinica']?.toString();
 
       if (data['especialidades'] is List) {
-        _especialidades = (data['especialidades'] as List)
-            .map((e) => e.toString())
-            .toList();
+        _especialidades =
+            (data['especialidades'] as List).map((e) => e.toString()).toList();
       }
     });
   }
@@ -96,6 +97,7 @@ class _ProfilePageState extends State<ProfilePage> {
         'rol': _rol,
         'tipo_usuario': _rol.toLowerCase(),
         'genero': _genero,
+        'clinica': _clinica,
         'especialidades': _especialidades,
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -261,6 +263,25 @@ class _ProfilePageState extends State<ProfilePage> {
                     avatar: const Icon(Icons.local_hospital, size: 16),
                   );
                 }).toList(),
+              ),
+
+              const SizedBox(height: 24),
+
+              // ===== Clínica =====
+              DropdownButtonFormField<String>(
+                value: _clinica,
+                decoration: const InputDecoration(
+                  labelText: 'Clínica',
+                  prefixIcon: Icon(Icons.location_city),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'T1', child: Text('T1')),
+                  DropdownMenuItem(value: 'Heroes', child: Text('Heroes')),
+                  DropdownMenuItem(value: 'Pacaptun', child: Text('Pacaptun')),
+                ],
+                onChanged: (val) {
+                  if (val != null) setState(() => _clinica = val);
+                },
               ),
             ],
 

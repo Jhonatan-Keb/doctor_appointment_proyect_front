@@ -98,6 +98,15 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
             _lightHaptic();
             onTap();
           },
+          onLongPress: () {
+            _mediumHaptic();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Especialista: $nombre - $especialidad'),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          },
           child: Ink(
             width: 140,
             decoration: BoxDecoration(
@@ -192,8 +201,8 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
             ListTile(
               leading: CircleAvatar(
                 backgroundColor: Colors.blue.shade100,
-                child: Icon(Icons.add_circle_outline,
-                    color: Colors.blue.shade700),
+                child:
+                    Icon(Icons.add_circle_outline, color: Colors.blue.shade700),
               ),
               title: const Text('Crear nueva cita'),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
@@ -205,8 +214,7 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
             ListTile(
               leading: CircleAvatar(
                 backgroundColor: Colors.green.shade100,
-                child:
-                    Icon(Icons.calendar_month, color: Colors.green.shade700),
+                child: Icon(Icons.calendar_month, color: Colors.green.shade700),
               ),
               title: const Text('Ver calendario'),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
@@ -277,8 +285,7 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
                       .doc(user.uid)
                       .snapshots(),
                   builder: (context, snapshot) {
-                    final data =
-                        snapshot.data?.data() as Map<String, dynamic>?;
+                    final data = snapshot.data?.data() as Map<String, dynamic>?;
 
                     final nombre =
                         (data?['nombre'] ?? email.split('@').first) as String;
@@ -330,8 +337,7 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
                 .doc(user.uid)
                 .snapshots(),
             builder: (context, snapshot) {
-              final data =
-                  snapshot.data?.data() as Map<String, dynamic>? ?? {};
+              final data = snapshot.data?.data() as Map<String, dynamic>? ?? {};
               final rol = (data['rol'] ?? 'Paciente').toString().toLowerCase();
 
               final isMedico = rol == 'médico' || rol == 'medico';
@@ -419,8 +425,7 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
                           }
                           final now = DateTime.now();
                           final count = snapshot.data!.docs.where((doc) {
-                            final data =
-                                doc.data() as Map<String, dynamic>;
+                            final data = doc.data() as Map<String, dynamic>;
                             final ts = data['cuando'] as Timestamp?;
                             final fecha = ts?.toDate();
                             return fecha != null &&
@@ -452,8 +457,7 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
                 .doc(user.uid)
                 .snapshots(),
             builder: (context, snapshot) {
-              final data =
-                  snapshot.data?.data() as Map<String, dynamic>? ?? {};
+              final data = snapshot.data?.data() as Map<String, dynamic>? ?? {};
               final rol = (data['rol'] ?? 'Paciente').toString().toLowerCase();
               final isMedico = rol == 'médico' || rol == 'medico';
 
@@ -463,8 +467,7 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
                     child: _AnimatedButton(
                       onPressed: isMedico
                           ? () {
-                              Navigator.pushNamed(
-                                  context, AppRoutes.dashboard);
+                              Navigator.pushNamed(context, AppRoutes.dashboard);
                             }
                           : () {
                               showCreateAppointmentDialog(context);
@@ -474,8 +477,7 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
                             ? Icons.bar_chart_rounded
                             : Icons.add_circle_outline_rounded,
                       ),
-                      label:
-                          Text(isMedico ? 'Ver citas' : 'Crear cita'),
+                      label: Text(isMedico ? 'Ver citas' : 'Crear cita'),
                       isPrimary: true,
                     ),
                   ),
@@ -609,9 +611,7 @@ class _AppointmentHomePageState extends State<AppointmentHomePage>
             }
           },
           icon: Icon(
-            _navIndex == 2
-                ? Icons.add_rounded
-                : Icons.flash_on_rounded,
+            _navIndex == 2 ? Icons.add_rounded : Icons.flash_on_rounded,
           ),
           label: Text(_navIndex == 2 ? 'Nueva cita' : 'Acciones'),
         ),
